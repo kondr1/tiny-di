@@ -34,7 +34,6 @@ func (c *C) Init(a *A, cc *Counter) error {
 	c.Str = a.Str + " and C " + strconv.Itoa(cc.I)
 	return nil
 }
-
 func BuildContainer() *Container {
 	c := &Container{}
 	AddTransient[A](c)
@@ -120,23 +119,14 @@ func TestNameFor(t *testing.T) {
 	}
 }
 
-func ActivatorTest[T any]() *T { return new(T) }
-
 func TestActivator(t *testing.T) {
 	a0 := &A{}
-	a1, err := activatorFor[*A]()
-	a2 := ActivatorTest[*A]()
-	a3 := ActivatorTest[A]()
-	if err != nil {
-		t.Errorf("ActivatorFor returned error %v", err)
-		return
-	}
+	a1 := activatorFor[*A]()
+
 	if a1 == nil {
 		t.Errorf("ActivatorFor returned nil")
 		return
 	}
 	t.Logf("%T, %+v", a0, a0)
 	t.Logf("%T, %+v", a1, *a1)
-	t.Logf("%T, %+v", a2, *a2)
-	t.Logf("%T, %+v", a3, a3)
 }

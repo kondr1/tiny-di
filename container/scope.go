@@ -24,12 +24,12 @@ func RequireServiceFor[T any](s *Scope) (*T, error) {
 	nameDep := nameFor[T]()
 	itemAny, ok := s.depsTree[nameDep]
 	if !ok {
-		return new(T), fmt.Errorf("dependency %s not found", nameDep)
+		return nil, fmt.Errorf("dependency %s not found", nameDep)
 	}
 	item, _ := itemAny.(itemInterface)
 	dep, err := item.Init(s)
 	if err != nil {
-		return new(T), err
+		return nil, err
 	}
 	return unwrap[T](dep)
 }
