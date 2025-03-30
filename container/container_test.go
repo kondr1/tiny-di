@@ -5,43 +5,40 @@ import (
 	"testing"
 )
 
-var counterA int
+type Counter struct{ I int }
+
+func (c *Counter) Init() error { return nil }
 
 type A struct{ Str string }
 
-func (a *A) Init() error {
-	counterA++
-	a.Str = "Only A " + strconv.Itoa(counterA)
+func (a *A) Init(c *Counter) error {
+	c.I++
+	a.Str = "Only A " + strconv.Itoa(c.I)
 	return nil
 }
-
-var counterB int
 
 type B struct{ Str string }
 
-func (b *B) Init(a *A) error {
-	counterB++
-	b.Str = a.Str + " and B " + strconv.Itoa(counterB)
+func (b *B) Init(a *A, c *Counter) error {
+	c.I++
+	b.Str = a.Str + " and B " + strconv.Itoa(c.I)
 	return nil
 }
 
-var counterC int
-
 type C struct{ Str string }
 
-func (c *C) Init(a *A) error {
-	counterC++
-	c.Str = a.Str + " and C " + strconv.Itoa(counterC)
+func (c *C) Init(a *A, cc *Counter) error {
+	cc.I++
+	c.Str = a.Str + " and C " + strconv.Itoa(cc.I)
 	return nil
 }
 
 func BuildContainer() *Container {
 	c := &Container{}
 	AddTransient[*A](c)
-	AddTransient[A](c)   // наверное будет ошибка при запросе этого
-	AddTransient[**A](c) // а хуй его знает чо будет
 	AddSingleton[*B](c)
 	AddScoped[*C](c)
+	AddSingleton[*Counter](c)
 	return c
 }
 
@@ -55,12 +52,12 @@ func BuildContainer() *Container {
 func TestSingleton(t *testing.T) {
 	c := BuildContainer()
 	first, err := RequireService[*B](c)
-	if first.Str != "Only A 1 and B 1" || err != nil {
+	if first.Str != "Only A 1 and B 2" || err != nil {
 		t.Errorf(", got %v", first.Str)
 		return
 	}
 	second, err := RequireService[*B](c)
-	if second.Str != "Only A 1 and B 1" || err != nil {
+	if second.Str != "Only A 1 and B 2" || err != nil {
 		t.Errorf(", got %v", second.Str)
 	}
 }
@@ -80,15 +77,15 @@ func TestTransient(t *testing.T) {
 
 func TestScoped(t *testing.T) {
 	c := BuildContainer()
-	scope := c.BuildScope()
+	scope := c.createScope()
 	defer scope.DisposeScope()
-	first, err := RequireScopedService[*C](scope)
-	if first.Str != "Only A 1 and C 1" || err != nil {
+	first, err := RequireServiceFor[*C](scope)
+	if first.Str != "Only A 1 and C 2" || err != nil {
 		t.Errorf(", got %v", first.Str)
 		return
 	}
-	second, err := RequireScopedService[*C](scope)
-	if second.Str != "Only A 1 and C 1" || err != nil {
+	second, err := RequireServiceFor[*C](scope)
+	if second.Str != "Only A 1 and C 2" || err != nil {
 		t.Errorf(", got %v", second.Str)
 	}
 }

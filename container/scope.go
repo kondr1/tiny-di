@@ -2,7 +2,6 @@ package container
 
 import (
 	"fmt"
-	"reflect"
 )
 
 type Scope struct {
@@ -12,56 +11,30 @@ type Scope struct {
 }
 
 func (c *Scope) DisposeScope() { c.scopeCounter = c.scopeCounter - 1 }
-
-func (c *Scope) requireService(depName string) (interface{}, error) {
-	item, ok := c.depsTree[depName]
-	if !ok {
-		return nil, fmt.Errorf("dependency %s not found", depName)
+func unwrap[T any](v any) (T, error) {
+	if v == nil {
+		return *new(T), fmt.Errorf("failed unwrap of type %T. Value is nil", *new(T))
 	}
-	if c.id != 1 && item.Lifetime == Scoped {
-		scopeDep, scopeOk := c.deps[depName]
-		if scopeDep != nil && scopeOk {
-			return scopeDep, nil
-		}
-	} else if c.id == 1 && item.Lifetime == Scoped {
-		return nil, fmt.Errorf("dependency %s is Scope dependency. You should BuildScope at first", depName)
+	castTDep, okDep := v.(T)
+	castTPtr, okPtr := v.(*T)
+	if !okPtr && !okDep { // WTF?
+		return *new(T), fmt.Errorf("failed unwrap of type %T", *new(T))
 	}
-	if item.Lifetime == Singleton {
-		globalDep, globalOk := c.global.deps[depName]
-		if globalDep != nil && globalOk {
-			return globalDep, nil
-		}
+	if okPtr {
+		return *castTPtr, nil
 	}
-
-	args := make([]reflect.Value, 0)
-
-	for _, v := range item.Dependencies {
-		d, err := c.requireService(v)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, reflect.ValueOf(d))
-	}
-
-	dep := activator(item.Type)
-	depValue := reflect.ValueOf(dep)
-	fmt.Println(depValue.Kind())
-	depValue.MethodByName("Init").Call(args)
-	if c.id != 1 && item.Lifetime == Scoped {
-		c.deps[depName] = dep
-	}
-	if item.Lifetime == Singleton {
-		c.global.deps[depName] = dep
-	}
-	return dep, nil
+	return castTDep, nil
 }
-func RequireScopedService[T any](s *Scope) (T, error) {
-	dep, err := s.RequireService(reflect.TypeFor[T]())
+func RequireServiceFor[T any](s *Scope) (T, error) {
+	nameDep := nameFor[T]()
+	itemAny, ok := s.depsTree[nameDep]
+	if !ok {
+		return *new(T), fmt.Errorf("dependency %s not found", nameDep)
+	}
+	item, _ := itemAny.(itemInterface)
+	dep, err := item.Init(s)
 	if err != nil {
 		return *new(T), err
 	}
-	return dep.(T), nil
-}
-func (c *Scope) RequireService(t reflect.Type) (interface{}, error) {
-	return c.requireService(nameOf(t))
+	return unwrap[T](dep)
 }

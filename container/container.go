@@ -6,31 +6,14 @@ import (
 	"slices"
 )
 
-// func extractType(t reflect.Type, pointerCount int) (reflect.Type, int) {
-// 	if t.Kind() == reflect.Ptr {
-// 		return extractType(t.Elem(), pointerCount+1)
-// 	}
-// 	if t.Kind() == reflect.Struct {
-// 		return t, pointerCount
-// 	}
-// 	return nil, 0
-// }
-
-// ptr wraps the given value with pointer: V => *V, *V => **V, etc.
-// func ptr(v reflect.Value) reflect.Value {
-// 	pt := reflect.PointerTo(v.Type()) // create a *T type.
-// 	pv := reflect.New(pt.Elem())      // create a reflect.Value of type *T.
-// 	pv.Elem().Set(v)                  // sets pv to point to underlying value of v.
-// 	return pv
-// }
-
-// return *T as interface{}
-func activator(T reflect.Type) any {
-	realType := T
-	if T.Kind() == reflect.Ptr {
-		realType = T.Elem()
+func activatorFor[T any]() (T, error) {
+	t := reflect.TypeFor[T]()
+	realType := t
+	if t.Kind() == reflect.Ptr {
+		realType = t.Elem()
 	}
-	return reflect.New(realType).Interface()
+	value := reflect.New(realType).Interface()
+	return unwrap[T](value)
 }
 
 type Lifetime int
@@ -42,15 +25,8 @@ const (
 	HostedService
 )
 
-type item struct {
-	Name         string
-	Dependencies []string
-	Lifetime     Lifetime
-	Type         reflect.Type
-}
-
 type Container struct {
-	depsTree     map[string]item
+	depsTree     map[string]any // map[string]item[T]
 	global       *Scope
 	scopeCounter int
 }
@@ -66,6 +42,17 @@ func AddSingleton[T any](c *Container) { add[T](c, Singleton) }
 // A scoped lifetime indicates that services are created once per client request (connection).
 func AddScoped[T any](c *Container) { add[T](c, Scoped) }
 
+func nameFor[T any]() string {
+	t := reflect.TypeFor[T]()
+	name := t.Name()
+	if t.Kind() == reflect.Ptr {
+		name = "*"
+		pointerTo := t.Elem()
+		name = name + nameOf(pointerTo)
+	}
+	return name
+}
+
 func nameOf(t reflect.Type) string {
 	name := t.Name()
 	if t.Kind() == reflect.Ptr {
@@ -76,21 +63,7 @@ func nameOf(t reflect.Type) string {
 	return name
 }
 
-func add[T any](c *Container, lifetime Lifetime) {
-	t := reflect.TypeFor[T]()
-	name := nameOf(t)
-	name2 := fmt.Sprintf("%T", t)
-	fmt.Println("Name: ", name, "= Name2: ", name2)
-
-	item := item{
-		Name:         name,
-		Dependencies: []string{},
-		Lifetime:     lifetime,
-		Type:         t,
-	}
-	c.add(item)
-}
-func (c *Container) BuildScope() *Scope {
+func (c *Container) createScope() *Scope {
 	c.scopeCounter = c.scopeCounter + 1
 	return &Scope{
 		Container: c,
@@ -98,17 +71,31 @@ func (c *Container) BuildScope() *Scope {
 		deps:      make(map[string]any),
 	}
 }
-func (c *Container) add(dep item) {
+func iii(ii itemInterface) any { return nil }
+func add[T any](c *Container, lifetime Lifetime) {
+	t := reflect.TypeFor[T]()
+	name := nameFor[T]()
+	name2 := fmt.Sprintf("%T", t)
+	fmt.Println("Name: ", name, "= Name2: ", name2)
+
+	dep := &itemFor[T]{
+		NameType:     name,
+		Dependencies: []string{},
+		Lifetime:     lifetime,
+		Type:         t,
+		Activator:    activatorFor[T],
+	}
+	iii(dep)
 	if c.depsTree == nil {
-		c.depsTree = make(map[string]item)
+		c.depsTree = make(map[string]any)
 	}
 	if c.global == nil {
-		c.global = c.BuildScope()
+		c.global = c.createScope()
 	}
 
 	initFunc, ok := dep.Type.MethodByName("Init")
 	if !ok {
-		panic("Init method not found for " + dep.Name + " dependency. Maybe you need you pointer symbol in type?")
+		panic("Init method not found for " + dep.NameType + " dependency. Maybe you need you pointer symbol in type?")
 	}
 
 	for i := range initFunc.Type.NumIn() {
@@ -120,20 +107,18 @@ func (c *Container) add(dep item) {
 		fmt.Println("Arg kind: ", arg.Kind(), " name: ", name)
 		if arg.Kind() == reflect.Struct || arg.Kind() == reflect.Ptr || arg.Kind() == reflect.Interface {
 			if slices.Contains(dep.Dependencies, name) {
-				panic("Dependency " + name + " already exists for " + dep.Name)
+				panic("Dependency " + name + " already exists for " + dep.NameType)
 			}
 			dep.Dependencies = append(dep.Dependencies, name)
 		}
 	}
 
-	_, ok = c.depsTree[dep.Name]
+	_, ok = c.depsTree[dep.NameType]
 	if ok {
-		panic("Dependency " + dep.Name + " already exists in container")
+		panic("Dependency " + dep.NameType + " already exists in container")
 	}
-	c.depsTree[dep.Name] = dep
+	c.depsTree[dep.NameType] = dep
 }
 func RequireService[T any](c *Container) (T, error) {
-	depName := nameOf(reflect.TypeFor[T]())
-	dep, err := c.global.requireService(depName)
-	return dep.(T), err
+	return RequireServiceFor[T](c.global)
 }
