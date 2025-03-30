@@ -6,16 +6,6 @@ import (
 	"slices"
 )
 
-func activatorFor[T any]() (T, error) {
-	t := reflect.TypeFor[T]()
-	realType := t
-	if t.Kind() == reflect.Ptr {
-		realType = t.Elem()
-	}
-	value := reflect.New(realType).Interface()
-	return unwrap[T](value)
-}
-
 type Lifetime int
 
 const (
@@ -26,9 +16,8 @@ const (
 )
 
 type Container struct {
-	depsTree     map[string]any // map[string]item[T]
-	global       *Scope
-	scopeCounter int
+	depsTree map[string]any // map[string]item[T]
+	global   *Scope
 }
 
 func AddHostedService[T any](c *Container) { add[T](c, HostedService) }
@@ -48,10 +37,8 @@ func nameFor[T any]() string {
 }
 
 func (c *Container) createScope() *Scope {
-	c.scopeCounter = c.scopeCounter + 1
 	return &Scope{
 		Container: c,
-		id:        c.scopeCounter,
 		deps:      make(map[string]any),
 	}
 }
@@ -68,10 +55,14 @@ func add[T any](c *Container, lifetime Lifetime) {
 		c.depsTree = make(map[string]any)
 	}
 	if c.global == nil {
-		c.global = c.createScope()
+		c.global = &Scope{
+			Container: c,
+			isGlobal:  true,
+			deps:      make(map[string]any),
+		}
 	}
 
-	initFunc, ok := dep.Type.MethodByName("Init")
+	initFunc, ok := reflect.PointerTo(dep.Type).MethodByName("Init")
 	if !ok {
 		panic("Init method not found for " + dep.NameType + " dependency. Maybe you need you pointer symbol in type?")
 	}
@@ -96,6 +87,6 @@ func add[T any](c *Container, lifetime Lifetime) {
 	}
 	c.depsTree[dep.NameType] = dep
 }
-func RequireService[T any](c *Container) (T, error) {
+func RequireService[T any](c *Container) (*T, error) {
 	return RequireServiceFor[T](c.global)
 }

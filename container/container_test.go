@@ -37,10 +37,10 @@ func (c *C) Init(a *A, cc *Counter) error {
 
 func BuildContainer() *Container {
 	c := &Container{}
-	AddTransient[*A](c)
-	AddSingleton[*B](c)
-	AddScoped[*C](c)
-	AddSingleton[*Counter](c)
+	AddTransient[A](c)
+	AddSingleton[B](c)
+	AddScoped[C](c)
+	AddSingleton[Counter](c)
 	return c
 }
 
@@ -53,25 +53,41 @@ func BuildContainer() *Container {
 
 func TestSingleton(t *testing.T) {
 	c := BuildContainer()
-	first, err := RequireService[*B](c)
-	if first.Str != "Only A 1 and B 2" || err != nil {
+	first, err := RequireService[B](c)
+	if first == nil {
+		t.Errorf(", got nil. Error %v", err)
+		return
+	}
+	if err != nil {
+		t.Errorf(", got %v", err)
+		return
+	}
+	if first.Str != "Only A 1 and B 2" {
 		t.Errorf(", got %v", first.Str)
 		return
 	}
-	second, err := RequireService[*B](c)
-	if second.Str != "Only A 1 and B 2" || err != nil {
-		t.Errorf(", got %v", second.Str)
+	second, err := RequireService[B](c)
+	if second == nil {
+		t.Error(", got second nil")
+		return
+	}
+	if err != nil {
+		t.Errorf(", got second %e", err)
+		return
+	}
+	if second.Str != "Only A 1 and B 2" {
+		t.Errorf(", got second %v", second.Str)
 	}
 }
 
 func TestTransient(t *testing.T) {
 	c := BuildContainer()
-	first, err := RequireService[*A](c)
+	first, err := RequireService[A](c)
 	if first.Str != "Only A 1" || err != nil {
 		t.Errorf(", got %v", first.Str)
 		return
 	}
-	second, err := RequireService[*A](c)
+	second, err := RequireService[A](c)
 	if second.Str != "Only A 2" || err != nil {
 		t.Errorf(", got %v", second.Str)
 	}
@@ -80,13 +96,12 @@ func TestTransient(t *testing.T) {
 func TestScoped(t *testing.T) {
 	c := BuildContainer()
 	scope := c.createScope()
-	defer scope.DisposeScope()
-	first, err := RequireServiceFor[*C](scope)
+	first, err := RequireServiceFor[C](scope)
 	if first.Str != "Only A 1 and C 2" || err != nil {
 		t.Errorf(", got %v", first.Str)
 		return
 	}
-	second, err := RequireServiceFor[*C](scope)
+	second, err := RequireServiceFor[C](scope)
 	if second.Str != "Only A 1 and C 2" || err != nil {
 		t.Errorf(", got %v", second.Str)
 	}
@@ -103,4 +118,25 @@ func TestNameFor(t *testing.T) {
 	if name1 != name2 || name1 != name3 || name1 != counterType.String() {
 		t.Errorf("%s and %s is not equal to %s", name3, name2, name1)
 	}
+}
+
+func ActivatorTest[T any]() *T { return new(T) }
+
+func TestActivator(t *testing.T) {
+	a0 := &A{}
+	a1, err := activatorFor[*A]()
+	a2 := ActivatorTest[*A]()
+	a3 := ActivatorTest[A]()
+	if err != nil {
+		t.Errorf("ActivatorFor returned error %v", err)
+		return
+	}
+	if a1 == nil {
+		t.Errorf("ActivatorFor returned nil")
+		return
+	}
+	t.Logf("%T, %+v", a0, a0)
+	t.Logf("%T, %+v", a1, *a1)
+	t.Logf("%T, %+v", a2, *a2)
+	t.Logf("%T, %+v", a3, a3)
 }

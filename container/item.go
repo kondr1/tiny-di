@@ -20,15 +20,16 @@ type itemFor[T any] struct {
 	Dependencies []string
 	Lifetime     Lifetime
 	Type         reflect.Type
-	Activator    func() (T, error)
+	Activator    func() (*T, error)
 }
 
+func activatorFor[T any]() (*T, error)           { return new(T), nil }
 func (i *itemFor[T]) Life() Lifetime             { return i.Lifetime }
 func (i *itemFor[T]) Deps() []string             { return i.Dependencies }
 func (i *itemFor[T]) Name() string               { return i.NameType }
 func (i *itemFor[T]) TypeOf() reflect.Type       { return i.Type }
 func (i *itemFor[T]) ActivatorAny() (any, error) { return i.Activator() }
-func (i *itemFor[T]) Init(c *Scope) (any, error) {
+func (i *itemFor[T]) Init(s *Scope) (any, error) {
 	var ok bool
 	var dep any
 	var err error
@@ -36,16 +37,16 @@ func (i *itemFor[T]) Init(c *Scope) (any, error) {
 	switch i.Lifetime {
 	case HostedService:
 	case Singleton:
-		dep, ok = c.global.deps[i.NameType]
+		dep, ok = s.global.deps[i.NameType]
 		if ok && !utility.IsNilOrDefault(dep) {
 			initWasInvoked = true
 			break
 		}
 		dep, err = i.Activator()
 	case Scoped:
-		dep, ok = c.deps[i.NameType]
-		if c.id == 1 {
-			return *new(T), fmt.Errorf("dependency %s is Scope dependency. You should BuildScope at first", i.NameType)
+		dep, ok = s.deps[i.NameType]
+		if s.isGlobal {
+			return new(T), fmt.Errorf("dependency %s is Scope dependency. You should BuildScope at first", i.NameType)
 		}
 		if ok && !utility.IsNilOrDefault(dep) {
 			initWasInvoked = true
@@ -58,7 +59,7 @@ func (i *itemFor[T]) Init(c *Scope) (any, error) {
 	}
 
 	if err != nil {
-		return *new(T), err
+		return new(T), err
 	}
 	if initWasInvoked {
 		return unwrap[T](dep)
@@ -66,14 +67,14 @@ func (i *itemFor[T]) Init(c *Scope) (any, error) {
 
 	args := make([]reflect.Value, 0)
 	for _, v := range i.Dependencies {
-		itemVal, ok := c.depsTree[v]
+		itemVal, ok := s.depsTree[v[1:]]
 		if !ok {
-			return *new(T), fmt.Errorf("dependency %s not found", v)
+			return new(T), fmt.Errorf("dependency %s not found", v)
 		}
 		item, _ := itemVal.(itemInterface)
-		dep, err := item.Init(c)
+		dep, err := item.Init(s)
 		if err != nil {
-			return *new(T), err
+			return new(T), err
 		}
 		args = append(args, reflect.ValueOf(dep))
 	}
@@ -81,10 +82,10 @@ func (i *itemFor[T]) Init(c *Scope) (any, error) {
 	depValue := reflect.ValueOf(dep)
 	depValue.MethodByName("Init").Call(args)
 	if i.Lifetime == Scoped {
-		c.deps[i.NameType] = dep
+		s.deps[i.NameType] = dep
 	}
 	if i.Lifetime == Singleton {
-		c.global.deps[i.NameType] = dep
+		s.global.deps[i.NameType] = dep
 	}
 	return unwrap[T](dep)
 }
