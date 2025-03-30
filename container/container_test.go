@@ -1,6 +1,8 @@
 package container
 
 import (
+	"fmt"
+	"reflect"
 	"strconv"
 	"testing"
 )
@@ -87,5 +89,18 @@ func TestScoped(t *testing.T) {
 	second, err := RequireServiceFor[*C](scope)
 	if second.Str != "Only A 1 and C 2" || err != nil {
 		t.Errorf(", got %v", second.Str)
+	}
+}
+
+func TestNameFor(t *testing.T) {
+	counterType := reflect.TypeFor[*Counter]()
+	counter := &Counter{I: 0}
+	var defaultCounter *Counter
+	name1 := nameFor[*Counter]()
+	name2 := fmt.Sprintf("%T", counter)
+	name3 := fmt.Sprintf("%T", defaultCounter)
+
+	if name1 != name2 || name1 != name3 || name1 != counterType.String() {
+		t.Errorf("%s and %s is not equal to %s", name3, name2, name1)
 	}
 }

@@ -34,6 +34,7 @@ func (i *itemFor[T]) Init(c *Scope) (any, error) {
 	var err error
 	var initWasInvoked bool
 	switch i.Lifetime {
+	case HostedService:
 	case Singleton:
 		dep, ok = c.global.deps[i.NameType]
 		if ok && !utility.IsNilOrDefault(dep) {
@@ -54,13 +55,6 @@ func (i *itemFor[T]) Init(c *Scope) (any, error) {
 	case Transient:
 		dep, err = i.Activator()
 		initWasInvoked = false
-	case HostedService:
-		dep, ok = c.global.deps[i.NameType]
-		if ok && !utility.IsNilOrDefault(dep) {
-			initWasInvoked = true
-			break
-		}
-		dep, err = i.Activator()
 	}
 
 	if err != nil {

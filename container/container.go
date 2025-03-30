@@ -43,24 +43,8 @@ func AddSingleton[T any](c *Container) { add[T](c, Singleton) }
 func AddScoped[T any](c *Container) { add[T](c, Scoped) }
 
 func nameFor[T any]() string {
-	t := reflect.TypeFor[T]()
-	name := t.Name()
-	if t.Kind() == reflect.Ptr {
-		name = "*"
-		pointerTo := t.Elem()
-		name = name + nameOf(pointerTo)
-	}
-	return name
-}
-
-func nameOf(t reflect.Type) string {
-	name := t.Name()
-	if t.Kind() == reflect.Ptr {
-		name = "*"
-		pointerTo := t.Elem()
-		name = name + nameOf(pointerTo)
-	}
-	return name
+	var val T
+	return fmt.Sprintf("%T", val)
 }
 
 func (c *Container) createScope() *Scope {
@@ -71,21 +55,15 @@ func (c *Container) createScope() *Scope {
 		deps:      make(map[string]any),
 	}
 }
-func iii(ii itemInterface) any { return nil }
 func add[T any](c *Container, lifetime Lifetime) {
-	t := reflect.TypeFor[T]()
 	name := nameFor[T]()
-	name2 := fmt.Sprintf("%T", t)
-	fmt.Println("Name: ", name, "= Name2: ", name2)
-
 	dep := &itemFor[T]{
 		NameType:     name,
 		Dependencies: []string{},
 		Lifetime:     lifetime,
-		Type:         t,
+		Type:         reflect.TypeFor[T](),
 		Activator:    activatorFor[T],
 	}
-	iii(dep)
 	if c.depsTree == nil {
 		c.depsTree = make(map[string]any)
 	}
@@ -103,8 +81,7 @@ func add[T any](c *Container, lifetime Lifetime) {
 			continue // for any method zero argument would be "this" argument
 		}
 		arg := initFunc.Type.In(i)
-		name := nameOf(arg)
-		fmt.Println("Arg kind: ", arg.Kind(), " name: ", name)
+		name := arg.String()
 		if arg.Kind() == reflect.Struct || arg.Kind() == reflect.Ptr || arg.Kind() == reflect.Interface {
 			if slices.Contains(dep.Dependencies, name) {
 				panic("Dependency " + name + " already exists for " + dep.NameType)
