@@ -23,30 +23,76 @@ type Container struct {
 func AddHostedService[T any](c *Container) { add[T](c, HostedService) }
 
 // Transient lifetime services are created each time they're requested from the service container
-func AddTransient[T any](c *Container) { add[T](c, Transient) }
+func AddTransientWithoutInterface[T any](c *Container) { add[T](c, Transient) }
 
 // Singleton lifetime services are created the first time they're requested
-func AddSingleton[T any](c *Container) { add[T](c, Singleton) }
+func AddSingletonWithoutInterface[T any](c *Container) { add[T](c, Singleton) }
 
 // A scoped lifetime indicates that services are created once per client request (connection).
-func AddScoped[T any](c *Container) { add[T](c, Scoped) }
+func AddScopedWithoutInterface[T any](c *Container) { add[T](c, Scoped) }
 
-func nameFor[T any]() string {
-	var val T
-	return fmt.Sprintf("%T", val)
-}
+// Transient lifetime services are created each time they're requested from the service container
+func AddTransient[I any, T any](c *Container) { addI[I, T](c, Transient) }
 
-func (c *Container) createScope() *Scope {
+// Singleton lifetime services are created the first time they're requested
+func AddSingleton[I any, T any](c *Container) { addI[I, T](c, Singleton) }
+
+// A scoped lifetime indicates that services are created once per client request (connection).
+func AddScoped[I any, T any](c *Container) { addI[I, T](c, Scoped) }
+
+func nameFor[T any]() string  { return fmt.Sprintf("%T", *new(T)) }
+func nameForI[T any]() string { return fmt.Sprintf("%T", new(T)) }
+
+func (c *Container) CreateScope() *Scope {
 	return &Scope{
 		Container: c,
 		deps:      make(map[string]any),
 	}
 }
-func add[T any](c *Container, lifetime Lifetime) {
+func addI[I any, T any](c *Container, lifetime Lifetime) {
+	nameT := nameFor[T]()
+	nameI := nameForI[I]()
+
+	interfaceType := reflect.TypeFor[I]()
+	if interfaceType.Kind() != reflect.Interface {
+		panic("First type " + nameI + " argument should be interface type")
+	}
+
+	structType := reflect.TypeFor[T]()
+	if structType.Kind() != reflect.Struct {
+		panic("Second type " + nameT + " argument should be struct type")
+	}
+	pointerType := reflect.PointerTo(structType)
+	fmt.Printf("%v: %v", pointerType, interfaceType)
+	if interfaceType.Implements(reflect.PointerTo(structType)) {
+		panic("Second type argument " + nameT + " should implement interface first type argument " + nameI)
+	}
+
+	depByType, okByType := c.depsTree[nameT]
+	_, okByInterface := c.depsTree[nameI]
+	if okByType && !okByInterface {
+		item := depByType.(*itemFor[T])
+		item.Interfaces = append(item.Interfaces, nameI)
+		c.depsTree[nameI] = depByType
+		return
+	}
+	if okByType && okByInterface {
+		panic("Dependency " + nameT + " implementation of " + nameI + " already exists in container")
+	}
+	if !okByType && okByInterface {
+		panic("Dependency " + nameI + " already exists in container")
+	}
+
+	dep := add[T](c, lifetime)
+	dep.Interfaces = append(dep.Interfaces, nameI)
+	c.depsTree[nameI] = dep
+}
+func add[T any](c *Container, lifetime Lifetime) *itemFor[T] {
 	name := nameFor[T]()
 	dep := &itemFor[T]{
 		NameType:     name,
 		Dependencies: []string{},
+		Interfaces:   []string{},
 		Lifetime:     lifetime,
 		Type:         reflect.TypeFor[T](),
 		Activator:    activatorFor[T],
@@ -86,7 +132,11 @@ func add[T any](c *Container, lifetime Lifetime) {
 		panic("Dependency " + dep.NameType + " already exists in container")
 	}
 	c.depsTree[dep.NameType] = dep
+	return dep
 }
 func RequireService[T any](c *Container) (*T, error) {
 	return RequireServiceFor[T](c.global)
+}
+func RequireServiceI[I any](c *Container) (I, error) {
+	return RequireServiceForI[I](c.global)
 }

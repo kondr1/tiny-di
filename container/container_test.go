@@ -7,12 +7,18 @@ import (
 	"testing"
 )
 
+type CounterInterface interface{}
+type AInterface interface{ String() string }
+type BInterface interface{ String() string }
+type CInterface interface{ String() string }
+
 type Counter struct{ I int }
 
 func (c *Counter) Init() error { return nil }
 
 type A struct{ Str string }
 
+func (a *A) String() string { return a.Str }
 func (a *A) Init(c *Counter) error {
 	c.I++
 	a.Str = "Only A " + strconv.Itoa(c.I)
@@ -21,6 +27,7 @@ func (a *A) Init(c *Counter) error {
 
 type B struct{ Str string }
 
+func (b *B) String() string { return b.Str }
 func (b *B) Init(a *A, c *Counter) error {
 	c.I++
 	b.Str = a.Str + " and B " + strconv.Itoa(c.I)
@@ -29,17 +36,19 @@ func (b *B) Init(a *A, c *Counter) error {
 
 type C struct{ Str string }
 
+func (c *C) String() string { return c.Str }
 func (c *C) Init(a *A, cc *Counter) error {
 	cc.I++
 	c.Str = a.Str + " and C " + strconv.Itoa(cc.I)
 	return nil
 }
+
 func BuildContainer() *Container {
 	c := &Container{}
-	AddTransient[A](c)
-	AddSingleton[B](c)
-	AddScoped[C](c)
-	AddSingleton[Counter](c)
+	AddTransient[AInterface, A](c)
+	AddSingleton[BInterface, B](c)
+	AddScoped[CInterface, C](c)
+	AddSingleton[CounterInterface, Counter](c)
 	return c
 }
 
@@ -52,7 +61,7 @@ func BuildContainer() *Container {
 
 func TestSingleton(t *testing.T) {
 	c := BuildContainer()
-	first, err := RequireService[B](c)
+	first, err := RequireServiceI[BInterface](c)
 	if first == nil {
 		t.Errorf(", got nil. Error %v", err)
 		return
@@ -61,8 +70,8 @@ func TestSingleton(t *testing.T) {
 		t.Errorf(", got %v", err)
 		return
 	}
-	if first.Str != "Only A 1 and B 2" {
-		t.Errorf(", got %v", first.Str)
+	if first.String() != "Only A 1 and B 2" {
+		t.Errorf(", got %v", first.String())
 		return
 	}
 	second, err := RequireService[B](c)
@@ -81,9 +90,9 @@ func TestSingleton(t *testing.T) {
 
 func TestTransient(t *testing.T) {
 	c := BuildContainer()
-	first, err := RequireService[A](c)
-	if first.Str != "Only A 1" || err != nil {
-		t.Errorf(", got %v", first.Str)
+	first, err := RequireServiceI[AInterface](c)
+	if first.String() != "Only A 1" || err != nil {
+		t.Errorf(", got %v", first.String())
 		return
 	}
 	second, err := RequireService[A](c)
@@ -94,10 +103,10 @@ func TestTransient(t *testing.T) {
 
 func TestScoped(t *testing.T) {
 	c := BuildContainer()
-	scope := c.createScope()
-	first, err := RequireServiceFor[C](scope)
-	if first.Str != "Only A 1 and C 2" || err != nil {
-		t.Errorf(", got %v", first.Str)
+	scope := c.CreateScope()
+	first, err := RequireServiceForI[CInterface](scope)
+	if first.String() != "Only A 1 and C 2" || err != nil {
+		t.Errorf(", got %v", first.String())
 		return
 	}
 	second, err := RequireServiceFor[C](scope)
@@ -114,8 +123,13 @@ func TestNameFor(t *testing.T) {
 	name2 := fmt.Sprintf("%T", counter)
 	name3 := fmt.Sprintf("%T", defaultCounter)
 
+	nameI := nameForI[CounterInterface]()
+
 	if name1 != name2 || name1 != name3 || name1 != counterType.String() {
 		t.Errorf("%s and %s is not equal to %s", name3, name2, name1)
+	}
+	if nameI != "*container.CounterInterface" {
+		t.Errorf("%s is not equal to container.CounterInterface", nameI)
 	}
 }
 

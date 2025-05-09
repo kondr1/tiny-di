@@ -9,6 +9,7 @@ import (
 type itemInterface interface {
 	Life() Lifetime
 	Deps() []string
+	Ints() []string
 	Name() string
 	TypeOf() reflect.Type
 	ActivatorAny() any
@@ -17,6 +18,7 @@ type itemInterface interface {
 
 type itemFor[T any] struct {
 	NameType     string
+	Interfaces   []string
 	Dependencies []string
 	Lifetime     Lifetime
 	Type         reflect.Type
@@ -26,39 +28,40 @@ type itemFor[T any] struct {
 func activatorFor[T any]() *T              { return new(T) }
 func (i *itemFor[T]) Life() Lifetime       { return i.Lifetime }
 func (i *itemFor[T]) Deps() []string       { return i.Dependencies }
+func (i *itemFor[T]) Ints() []string       { return i.Interfaces }
 func (i *itemFor[T]) Name() string         { return i.NameType }
 func (i *itemFor[T]) TypeOf() reflect.Type { return i.Type }
 func (i *itemFor[T]) ActivatorAny() any    { return i.Activator() }
 func (i *itemFor[T]) Init(s *Scope) (any, error) {
 	var ok bool
-	var dep any
+	var resolved any
 	var constructorWasInvoked bool
 	switch i.Lifetime {
 	case HostedService:
 	case Singleton:
-		dep, ok = s.global.deps[i.NameType]
-		if ok && !utility.IsNilOrDefault(dep) {
+		resolved, ok = s.global.deps[i.NameType]
+		if ok && !utility.IsNilOrDefault(resolved) {
 			constructorWasInvoked = true
 			break
 		}
-		dep = i.Activator()
+		resolved = i.Activator()
 	case Scoped:
-		dep, ok = s.deps[i.NameType]
+		resolved, ok = s.deps[i.NameType]
 		if s.isGlobal {
 			return nil, fmt.Errorf("dependency %s is Scope dependency. You should BuildScope at first", i.NameType)
 		}
-		if ok && !utility.IsNilOrDefault(dep) {
+		if ok && !utility.IsNilOrDefault(resolved) {
 			constructorWasInvoked = true
 			break
 		}
-		dep = i.Activator()
+		resolved = i.Activator()
 	case Transient:
-		dep = i.Activator()
+		resolved = i.Activator()
 		constructorWasInvoked = false
 	}
 
 	if constructorWasInvoked {
-		return unwrap[T](dep)
+		return unwrap[T](resolved)
 	}
 
 	args := make([]reflect.Value, 0)
@@ -75,13 +78,13 @@ func (i *itemFor[T]) Init(s *Scope) (any, error) {
 		args = append(args, reflect.ValueOf(dep))
 	}
 
-	depValue := reflect.ValueOf(dep)
+	depValue := reflect.ValueOf(resolved)
 	depValue.MethodByName("Init").Call(args)
 	if i.Lifetime == Scoped {
-		s.deps[i.NameType] = dep
+		s.deps[i.NameType] = resolved
 	}
 	if i.Lifetime == Singleton {
-		s.global.deps[i.NameType] = dep
+		s.global.deps[i.NameType] = resolved
 	}
-	return unwrap[T](dep)
+	return unwrap[T](resolved)
 }
