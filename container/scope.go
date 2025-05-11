@@ -37,12 +37,11 @@ func RequireServiceFor[T any](s *Scope) (*T, error) {
 	if nameDep == "" || nameDep == "<nil>" {
 		panic("Cannt extract dependency name. Maybe you should use RequireServiceForI for interfaces?")
 	}
-	itemAny, ok := s.depsTree[nameDep]
+	item, ok := s.depsTree[nameDep]
 	if !ok {
 		return nil, fmt.Errorf("dependency %s not found", nameDep)
 	}
-	item, _ := itemAny.(descriptorInterface)
-	dep, err := item.Init(s)
+	dep, err := item.Init(s, "")
 	if err != nil {
 		return nil, err
 	}
@@ -53,12 +52,11 @@ func RequireServiceForI[I any](c *Scope) (I, error) {
 	if nameDep == "" || nameDep == "<nil>" {
 		panic("Cannt extract dependency name. Maybe you should use RequireServiceFor for struct?")
 	}
-	itemAny, ok := c.depsTree[nameDep]
+	item, ok := c.depsTree[nameDep]
 	if !ok {
 		return *new(I), fmt.Errorf("dependency %s not found", nameDep)
 	}
-	item, _ := itemAny.(descriptorInterface)
-	dep, err := item.Init(c)
+	dep, err := item.Init(c, "")
 	if err != nil {
 		return *new(I), err
 	}

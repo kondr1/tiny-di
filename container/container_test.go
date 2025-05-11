@@ -193,5 +193,7 @@ func TestCircleDep(t *testing.T) {
 
 	c := BuildContainer()
 	AddTransientWithoutInterface[CircleOne](c)
-	AddTransientWithoutInterface[CircleTwo](c)
+	AddTransientWithoutInterface[CircleTwo](c) // TODO: throw panic here
+
+	_, _ = RequireService[CircleOne](c)
 }

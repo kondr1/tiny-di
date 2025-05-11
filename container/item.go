@@ -13,7 +13,7 @@ type descriptorInterface interface {
 	Name() string
 	TypeOf() reflect.Type
 	ActivatorAny() any
-	Init(c *Scope) (any, error)
+	Init(c *Scope, sourceTypeName string) (any, error)
 }
 
 type descriptor[T any] struct {
@@ -32,7 +32,7 @@ func (i *descriptor[T]) Ints() []string       { return i.Interfaces }
 func (i *descriptor[T]) Name() string         { return i.NameType }
 func (i *descriptor[T]) TypeOf() reflect.Type { return i.Type }
 func (i *descriptor[T]) ActivatorAny() any    { return i.Activator() }
-func (i *descriptor[T]) Init(s *Scope) (any, error) {
+func (i *descriptor[T]) Init(s *Scope, sourceTypeName string) (any, error) {
 	var ok bool
 	var resolved any
 	var constructorWasInvoked bool
@@ -64,14 +64,20 @@ func (i *descriptor[T]) Init(s *Scope) (any, error) {
 		return unwrap[T](resolved)
 	}
 
+	if sourceTypeName == "" {
+		sourceTypeName = i.NameType
+	}
+
 	args := make([]reflect.Value, 0)
 	for _, v := range i.Dependencies {
-		itemVal, ok := s.depsTree[v[1:]]
+		if v == sourceTypeName {
+			panic("Circle dependency: " + sourceTypeName + " in " + v + " constructor")
+		}
+		item, ok := s.depsTree[v[1:]]
 		if !ok {
 			return nil, fmt.Errorf("dependency %s not found", v)
 		}
-		item, _ := itemVal.(descriptorInterface)
-		dep, err := item.Init(s)
+		dep, err := item.Init(s, sourceTypeName)
 		if err != nil {
 			return nil, err
 		}

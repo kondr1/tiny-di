@@ -16,39 +16,13 @@ const (
 )
 
 type Container struct {
-	depsTree map[string]any // map[string]item[T]
+	depsTree map[string]descriptorInterface // map[string]item[T]
 	global   *Scope
 }
-
-func AddHostedService[T any](c *Container) { add[T](c, HostedService) }
-
-// Transient lifetime services are created each time they're requested from the service container
-func AddTransientWithoutInterface[T any](c *Container) { add[T](c, Transient) }
-
-// Singleton lifetime services are created the first time they're requested
-func AddSingletonWithoutInterface[T any](c *Container) { add[T](c, Singleton) }
-
-// A scoped lifetime indicates that services are created once per client request (connection).
-func AddScopedWithoutInterface[T any](c *Container) { add[T](c, Scoped) }
-
-// Transient lifetime services are created each time they're requested from the service container
-func AddTransient[I any, T any](c *Container) { addI[I, T](c, Transient) }
-
-// Singleton lifetime services are created the first time they're requested
-func AddSingleton[I any, T any](c *Container) { addI[I, T](c, Singleton) }
-
-// A scoped lifetime indicates that services are created once per client request (connection).
-func AddScoped[I any, T any](c *Container) { addI[I, T](c, Scoped) }
 
 func nameFor[T any]() string  { return fmt.Sprintf("%T", *new(T)) }
 func nameForI[T any]() string { return fmt.Sprintf("%T", new(T)) }
 
-func (c *Container) CreateScope() *Scope {
-	return &Scope{
-		Container: c,
-		deps:      make(map[string]any),
-	}
-}
 func addI[I any, T any](c *Container, lifetime Lifetime) {
 	nameT := nameFor[T]()
 	nameI := nameForI[I]()
@@ -97,7 +71,7 @@ func add[T any](c *Container, lifetime Lifetime) *descriptor[T] {
 		Activator:    activatorFor[T],
 	}
 	if c.depsTree == nil {
-		c.depsTree = make(map[string]any)
+		c.depsTree = make(map[string]descriptorInterface)
 	}
 	if c.global == nil {
 		c.global = &Scope{
@@ -133,6 +107,48 @@ func add[T any](c *Container, lifetime Lifetime) *descriptor[T] {
 	c.depsTree[dep.NameType] = dep
 	return dep
 }
+
+func (s *Scope) checkCircle(typeNmae string, source descriptorInterface) {
+	for _, dep := range source.Deps() {
+		if dep == typeNmae {
+			panic("Circle dependency on " + typeNmae)
+		}
+		next, ok := s.depsTree[dep]
+		if !ok {
+			// TODO: its not ok
+			panic("Error while checking circle depndencies: dependency not found: " + dep)
+		}
+		s.checkCircle(typeNmae, next)
+	}
+}
+
+func (c *Container) CreateScope() *Scope {
+	return &Scope{
+		Container: c,
+		deps:      make(map[string]any),
+	}
+}
+
+func AddHostedService[T any](c *Container) { add[T](c, HostedService) }
+
+// Transient lifetime services are created each time they're requested from the service container
+func AddTransientWithoutInterface[T any](c *Container) { add[T](c, Transient) }
+
+// Singleton lifetime services are created the first time they're requested
+func AddSingletonWithoutInterface[T any](c *Container) { add[T](c, Singleton) }
+
+// A scoped lifetime indicates that services are created once per client request (connection).
+func AddScopedWithoutInterface[T any](c *Container) { add[T](c, Scoped) }
+
+// Transient lifetime services are created each time they're requested from the service container
+func AddTransient[I any, T any](c *Container) { addI[I, T](c, Transient) }
+
+// Singleton lifetime services are created the first time they're requested
+func AddSingleton[I any, T any](c *Container) { addI[I, T](c, Singleton) }
+
+// A scoped lifetime indicates that services are created once per client request (connection).
+func AddScoped[I any, T any](c *Container) { addI[I, T](c, Scoped) }
+
 func RequireService[T any](c *Container) (*T, error) {
 	return RequireServiceFor[T](c.global)
 }
