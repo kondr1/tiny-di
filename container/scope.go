@@ -6,8 +6,8 @@ import (
 
 type Scope struct {
 	*Container
-	isGlobal bool
-	deps     map[string]any
+	isGlobal  bool
+	instances map[string]any
 }
 
 func unwrap[T any](v any) (*T, error) {
@@ -33,32 +33,36 @@ func unwrapI[I any](v any) (I, error) {
 }
 
 func RequireServiceFor[T any](s *Scope) (*T, error) {
+	if !s.builded {
+		panic("container not builded. You should call Build() before RequireServiceFor")
+	}
 	nameDep := nameFor[T]()
 	if nameDep == "" || nameDep == "<nil>" {
 		panic("Cannt extract dependency name. Maybe you should use RequireServiceForI for interfaces?")
 	}
-	itemAny, ok := s.depsTree[nameDep]
+	item, ok := s.callSites[nameDep]
 	if !ok {
-		return nil, fmt.Errorf("dependency %s not found", nameDep)
+		panic(fmt.Errorf("%w: %s", ErrDependencyNotFound, nameDep))
 	}
-	item, _ := itemAny.(descriptorInterface)
-	dep, err := item.Init(s)
+	dep, err := item.Build(s)
 	if err != nil {
 		return nil, err
 	}
 	return unwrap[T](dep)
 }
-func RequireServiceForI[I any](c *Scope) (I, error) {
+func RequireServiceForI[I any](s *Scope) (I, error) {
+	if !s.builded {
+		panic("container not builded. You should call Build() before RequireServiceForI")
+	}
 	nameDep := nameForI[I]()
 	if nameDep == "" || nameDep == "<nil>" {
 		panic("Cannt extract dependency name. Maybe you should use RequireServiceFor for struct?")
 	}
-	itemAny, ok := c.depsTree[nameDep]
+	item, ok := s.callSites[nameDep]
 	if !ok {
-		return *new(I), fmt.Errorf("dependency %s not found", nameDep)
+		panic(fmt.Errorf("%w: %s", ErrDependencyNotFound, nameDep))
 	}
-	item, _ := itemAny.(descriptorInterface)
-	dep, err := item.Init(c)
+	dep, err := item.Build(s)
 	if err != nil {
 		return *new(I), err
 	}

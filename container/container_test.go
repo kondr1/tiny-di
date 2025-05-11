@@ -1,6 +1,7 @@
 package container
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -43,7 +44,7 @@ func (c *C) Init(a *A, cc *Counter) error {
 	return nil
 }
 
-func BuildContainer() *Container {
+func GetContainer() *Container {
 	c := &Container{}
 	AddTransient[AInterface, A](c)
 	AddSingleton[BInterface, B](c)
@@ -51,13 +52,16 @@ func BuildContainer() *Container {
 	AddSingleton[CounterInterface, Counter](c)
 	return c
 }
+func BuildContainer() *Container {
+	c := GetContainer()
+	err := c.Build()
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
 
-// TODO: Что если зависимостей не хватает?
-// TODO: Что если зависимость не инициализируется?
-// TODO: Что если запрашиваем Scoped вне скоупа?
-// TODO: Добавить интерфейсы
 // TODO: Добавить HostedService
-// TODO: Добавить метод Build что бы не искать зависимость во время выполнения
 
 func TestSingleton(t *testing.T) {
 	c := BuildContainer()
@@ -115,6 +119,19 @@ func TestScoped(t *testing.T) {
 	}
 }
 
+func TestScopedOutOfScope(t *testing.T) {
+	c := BuildContainer()
+	first, err := RequireServiceI[CInterface](c)
+	if err == nil {
+		t.Errorf(", got %v", first.String())
+		return
+	}
+	second, err := RequireService[C](c)
+	if err == nil {
+		t.Errorf(", got %v", second.Str)
+	}
+}
+
 func TestNameFor(t *testing.T) {
 	counterType := reflect.TypeFor[*Counter]()
 	counter := &Counter{I: 0}
@@ -148,11 +165,19 @@ func TestActivator(t *testing.T) {
 type NotInContainer struct{}
 
 func TestNoFond(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("The code did not panic")
+		}
+		if errors.Is(errors.Unwrap(r.(error)), ErrDependencyNotFound) {
+			return
+		}
+		t.Errorf("Error not same: %s", r.(error))
+	}()
 	c := BuildContainer()
 	_, err := RequireService[NotInContainer](c)
-	if err == nil {
-		t.Error("Expect error")
-	}
+
 	t.Log(err)
 }
 
@@ -166,8 +191,13 @@ func TestAlreadyHas(t *testing.T) {
 			t.Errorf("Error not same: %s", r)
 		}
 	}()
-	c := BuildContainer()
+	c := GetContainer()
+
 	AddScoped[C, CInterface](c)
+	err := c.Build()
+	if err != nil {
+		panic(err)
+	}
 }
 
 type CircleOne struct{}
@@ -186,12 +216,24 @@ func TestCircleDep(t *testing.T) {
 		if r == nil {
 			t.Errorf("The code did not panic!")
 		}
-		if r != "circle dependecy" {
-			t.Errorf("Error not same: %s", r)
+		err := r.(error)
+		if errors.Is(errors.Unwrap(err), ErrCircleDependency) {
+			t.Log(err)
 		}
+		if errors.Is(errors.Unwrap(errors.Unwrap(err)), ErrCircleDependency) {
+			return
+		}
+		t.Errorf("Error not same: %s", r)
 	}()
 
-	c := BuildContainer()
+	c := GetContainer()
 	AddTransientWithoutInterface[CircleOne](c)
 	AddTransientWithoutInterface[CircleTwo](c)
+
+	err := c.Build()
+	if err != nil {
+		panic(err)
+	}
+
+	_, _ = RequireService[CircleOne](c)
 }
