@@ -76,7 +76,7 @@ func TestSingleton(t *testing.T) {
 	}
 	second, err := RequireService[B](c)
 	if second == nil {
-		t.Error(", got second nil")
+		t.Errorf(", got second nil %e", err)
 		return
 	}
 	if err != nil {
@@ -85,6 +85,14 @@ func TestSingleton(t *testing.T) {
 	}
 	if second.Str != "Only A 1 and B 2" {
 		t.Errorf(", got second %v", second.Str)
+	}
+	third, err := RequireServiceFor[BInterface](c.global)
+	if third == nil {
+		t.Errorf(", got third nil %e", err)
+		return
+	}
+	if (*third).String() != "Only A 1 and B 2" {
+		t.Errorf(", got third %v", (*third).String())
 	}
 }
 

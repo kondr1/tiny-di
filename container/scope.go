@@ -2,6 +2,7 @@ package container
 
 import (
 	"fmt"
+	"reflect"
 )
 
 type Scope struct {
@@ -33,7 +34,21 @@ func unwrapI[I any](v any) (I, error) {
 }
 
 func RequireServiceFor[T any](s *Scope) (*T, error) {
-	nameDep := nameFor[T]()
+	Ttype := reflect.TypeFor[T]()
+	TKind := Ttype.Kind()
+	var nameDep string
+	if TKind == reflect.Interface {
+		nameDep = nameForI[T]()
+	}
+	if TKind == reflect.Struct {
+		nameDep = nameFor[T]()
+	}
+	if TKind != reflect.Struct && TKind != reflect.Interface {
+		panic("Required type not struct and iterface")
+	}
+	if nameDep == "" || nameDep == "<nil>" {
+		panic("Cannt extract dependency name")
+	}
 	itemAny, ok := s.depsTree[nameDep]
 	if !ok {
 		return nil, fmt.Errorf("dependency %s not found", nameDep)
@@ -46,7 +61,7 @@ func RequireServiceFor[T any](s *Scope) (*T, error) {
 	return unwrap[T](dep)
 }
 func RequireServiceForI[I any](c *Scope) (I, error) {
-	nameDep := nameFor[I]()
+	nameDep := nameForI[I]()
 	itemAny, ok := c.depsTree[nameDep]
 	if !ok {
 		return *new(I), fmt.Errorf("dependency %s not found", nameDep)

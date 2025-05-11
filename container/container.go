@@ -64,7 +64,8 @@ func addI[I any, T any](c *Container, lifetime Lifetime) {
 	}
 	pointerType := reflect.PointerTo(structType)
 	fmt.Printf("%v: %v", pointerType, interfaceType)
-	if interfaceType.Implements(reflect.PointerTo(structType)) {
+
+	if !reflect.PointerTo(structType).Implements(interfaceType) {
 		panic("Second type argument " + nameT + " should implement interface first type argument " + nameI)
 	}
 
