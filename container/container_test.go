@@ -86,14 +86,6 @@ func TestSingleton(t *testing.T) {
 	if second.Str != "Only A 1 and B 2" {
 		t.Errorf(", got second %v", second.Str)
 	}
-	third, err := RequireServiceFor[BInterface](c.global)
-	if third == nil {
-		t.Errorf(", got third nil %e", err)
-		return
-	}
-	if (*third).String() != "Only A 1 and B 2" {
-		t.Errorf(", got third %v", (*third).String())
-	}
 }
 
 func TestTransient(t *testing.T) {
@@ -149,6 +141,57 @@ func TestActivator(t *testing.T) {
 		t.Errorf("ActivatorFor returned nil")
 		return
 	}
-	t.Logf("%T, %+v", a0, a0)
-	t.Logf("%T, %+v", a1, *a1)
+	t.Logf("%T, %+v\n", a0, a0)
+	t.Logf("%T, %+v\n", a1, *a1)
+}
+
+type NotInContainer struct{}
+
+func TestNoFond(t *testing.T) {
+	c := BuildContainer()
+	_, err := RequireService[NotInContainer](c)
+	if err == nil {
+		t.Error("Expect error")
+	}
+	t.Log(err)
+}
+
+func TestAlreadyHas(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("The code did not panic")
+		}
+		if r != "First type *container.C argument should be interface type" {
+			t.Errorf("Error not same: %s", r)
+		}
+	}()
+	c := BuildContainer()
+	AddScoped[C, CInterface](c)
+}
+
+type CircleOne struct{}
+type CircleTwo struct{}
+
+func (*CircleOne) Init(a *CircleTwo) error {
+	return nil
+}
+func (*CircleTwo) Init(a *CircleOne) error {
+	return nil
+}
+
+func TestCircleDep(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("The code did not panic!")
+		}
+		if r != "circle dependecy" {
+			t.Errorf("Error not same: %s", r)
+		}
+	}()
+
+	c := BuildContainer()
+	AddTransientWithoutInterface[CircleOne](c)
+	AddTransientWithoutInterface[CircleTwo](c)
 }

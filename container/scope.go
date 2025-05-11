@@ -2,7 +2,6 @@ package container
 
 import (
 	"fmt"
-	"reflect"
 )
 
 type Scope struct {
@@ -34,26 +33,15 @@ func unwrapI[I any](v any) (I, error) {
 }
 
 func RequireServiceFor[T any](s *Scope) (*T, error) {
-	Ttype := reflect.TypeFor[T]()
-	TKind := Ttype.Kind()
-	var nameDep string
-	if TKind == reflect.Interface {
-		nameDep = nameForI[T]()
-	}
-	if TKind == reflect.Struct {
-		nameDep = nameFor[T]()
-	}
-	if TKind != reflect.Struct && TKind != reflect.Interface {
-		panic("Required type not struct and iterface")
-	}
+	nameDep := nameFor[T]()
 	if nameDep == "" || nameDep == "<nil>" {
-		panic("Cannt extract dependency name")
+		panic("Cannt extract dependency name. Maybe you should use RequireServiceForI for interfaces?")
 	}
 	itemAny, ok := s.depsTree[nameDep]
 	if !ok {
 		return nil, fmt.Errorf("dependency %s not found", nameDep)
 	}
-	item, _ := itemAny.(itemInterface)
+	item, _ := itemAny.(descriptorInterface)
 	dep, err := item.Init(s)
 	if err != nil {
 		return nil, err
@@ -62,11 +50,14 @@ func RequireServiceFor[T any](s *Scope) (*T, error) {
 }
 func RequireServiceForI[I any](c *Scope) (I, error) {
 	nameDep := nameForI[I]()
+	if nameDep == "" || nameDep == "<nil>" {
+		panic("Cannt extract dependency name. Maybe you should use RequireServiceFor for struct?")
+	}
 	itemAny, ok := c.depsTree[nameDep]
 	if !ok {
 		return *new(I), fmt.Errorf("dependency %s not found", nameDep)
 	}
-	item, _ := itemAny.(itemInterface)
+	item, _ := itemAny.(descriptorInterface)
 	dep, err := item.Init(c)
 	if err != nil {
 		return *new(I), err

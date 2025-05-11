@@ -62,8 +62,6 @@ func addI[I any, T any](c *Container, lifetime Lifetime) {
 	if structType.Kind() != reflect.Struct {
 		panic("Second type " + nameT + " argument should be struct type")
 	}
-	pointerType := reflect.PointerTo(structType)
-	fmt.Printf("%v: %v", pointerType, interfaceType)
 
 	if !reflect.PointerTo(structType).Implements(interfaceType) {
 		panic("Second type argument " + nameT + " should implement interface first type argument " + nameI)
@@ -72,7 +70,7 @@ func addI[I any, T any](c *Container, lifetime Lifetime) {
 	depByType, okByType := c.depsTree[nameT]
 	_, okByInterface := c.depsTree[nameI]
 	if okByType && !okByInterface {
-		item := depByType.(*itemFor[T])
+		item := depByType.(*descriptor[T])
 		item.Interfaces = append(item.Interfaces, nameI)
 		c.depsTree[nameI] = depByType
 		return
@@ -88,9 +86,9 @@ func addI[I any, T any](c *Container, lifetime Lifetime) {
 	dep.Interfaces = append(dep.Interfaces, nameI)
 	c.depsTree[nameI] = dep
 }
-func add[T any](c *Container, lifetime Lifetime) *itemFor[T] {
+func add[T any](c *Container, lifetime Lifetime) *descriptor[T] {
 	name := nameFor[T]()
-	dep := &itemFor[T]{
+	dep := &descriptor[T]{
 		NameType:     name,
 		Dependencies: []string{},
 		Interfaces:   []string{},

@@ -6,7 +6,7 @@ import (
 	"tiny-di/utility"
 )
 
-type itemInterface interface {
+type descriptorInterface interface {
 	Life() Lifetime
 	Deps() []string
 	Ints() []string
@@ -16,7 +16,7 @@ type itemInterface interface {
 	Init(c *Scope) (any, error)
 }
 
-type itemFor[T any] struct {
+type descriptor[T any] struct {
 	NameType     string
 	Interfaces   []string
 	Dependencies []string
@@ -25,14 +25,14 @@ type itemFor[T any] struct {
 	Activator    func() *T
 }
 
-func activatorFor[T any]() *T              { return new(T) }
-func (i *itemFor[T]) Life() Lifetime       { return i.Lifetime }
-func (i *itemFor[T]) Deps() []string       { return i.Dependencies }
-func (i *itemFor[T]) Ints() []string       { return i.Interfaces }
-func (i *itemFor[T]) Name() string         { return i.NameType }
-func (i *itemFor[T]) TypeOf() reflect.Type { return i.Type }
-func (i *itemFor[T]) ActivatorAny() any    { return i.Activator() }
-func (i *itemFor[T]) Init(s *Scope) (any, error) {
+func activatorFor[T any]() *T                 { return new(T) }
+func (i *descriptor[T]) Life() Lifetime       { return i.Lifetime }
+func (i *descriptor[T]) Deps() []string       { return i.Dependencies }
+func (i *descriptor[T]) Ints() []string       { return i.Interfaces }
+func (i *descriptor[T]) Name() string         { return i.NameType }
+func (i *descriptor[T]) TypeOf() reflect.Type { return i.Type }
+func (i *descriptor[T]) ActivatorAny() any    { return i.Activator() }
+func (i *descriptor[T]) Init(s *Scope) (any, error) {
 	var ok bool
 	var resolved any
 	var constructorWasInvoked bool
@@ -70,7 +70,7 @@ func (i *itemFor[T]) Init(s *Scope) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("dependency %s not found", v)
 		}
-		item, _ := itemVal.(itemInterface)
+		item, _ := itemVal.(descriptorInterface)
 		dep, err := item.Init(s)
 		if err != nil {
 			return nil, err
