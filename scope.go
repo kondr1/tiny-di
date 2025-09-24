@@ -17,12 +17,7 @@ import (
 type Scope struct {
 	*Container
 
-	// isGlobal indicates whether this scope is the container's global scope.
-	// Global scopes cannot resolve scoped services.
-	isGlobal bool
-
-	// instances holds the cached instances of scoped services for this scope.
-	// The key is the service type name, and the value is the service instance.
+	isGlobal  bool
 	instances map[string]any
 }
 
@@ -48,17 +43,6 @@ func unwrapT[T any](v any) (*T, error) {
 		return nil, fmt.Errorf("failed unwrap of type %T", *new(T))
 	}
 	return castTPtr, nil
-}
-
-func unwrapI[I any](v any) (I, error) {
-	if v == nil {
-		return *new(I), fmt.Errorf("failed unwrap of type %T. Value is nil", *new(I))
-	}
-	castInterfacePtr, ok := v.(I)
-	if !ok {
-		return *new(I), fmt.Errorf("failed unwrap of type %T", *new(I))
-	}
-	return castInterfacePtr, nil
 }
 
 // RequireServicePtrForScope resolves a service instance of type T from the specified scope.

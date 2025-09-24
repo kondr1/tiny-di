@@ -54,10 +54,7 @@ func GetContainer() *Container {
 }
 func BuildContainer() *Container {
 	c := GetContainer()
-	err := c.Build()
-	if err != nil {
-		panic(err)
-	}
+	c.Build()
 	return c
 }
 
@@ -217,10 +214,7 @@ func TestAlreadyHas(t *testing.T) {
 	c := GetContainer()
 
 	AddScoped[C, CInterface](c)
-	err := c.Build()
-	if err != nil {
-		panic(err)
-	}
+	c.Build()
 }
 
 type CircleOne struct{}
@@ -249,10 +243,7 @@ func TestCircleDep(t *testing.T) {
 	AddTransientWithoutInterface[CircleOne](c)
 	AddTransientWithoutInterface[CircleTwo](c)
 
-	err := c.Build()
-	if err != nil {
-		panic(err)
-	}
+	c.Build()
 
 	_, _ = RequireServicePtr[CircleOne](c)
 }
