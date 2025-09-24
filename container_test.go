@@ -65,7 +65,7 @@ func BuildContainer() *Container {
 
 func TestSingleton(t *testing.T) {
 	c := BuildContainer()
-	first, err := RequireServiceI[BInterface](c)
+	first, err := RequireService[BInterface](c)
 	if first == nil {
 		t.Errorf(", got nil. Error %v", err)
 		return
@@ -78,7 +78,7 @@ func TestSingleton(t *testing.T) {
 		t.Errorf(", got %v", first.String())
 		return
 	}
-	second, err := RequireService[B](c)
+	second, err := RequireServicePtr[B](c)
 	if second == nil {
 		t.Errorf(", got second nil %e", err)
 		return
@@ -94,12 +94,12 @@ func TestSingleton(t *testing.T) {
 
 func TestTransient(t *testing.T) {
 	c := BuildContainer()
-	first, err := RequireServiceI[AInterface](c)
+	first, err := RequireService[AInterface](c)
 	if first.String() != "Only A 1" || err != nil {
 		t.Errorf(", got %v", first.String())
 		return
 	}
-	second, err := RequireService[A](c)
+	second, err := RequireServicePtr[A](c)
 	if second.Str != "Only A 2" || err != nil {
 		t.Errorf(", got %v", second.Str)
 	}
@@ -108,12 +108,12 @@ func TestTransient(t *testing.T) {
 func TestScoped(t *testing.T) {
 	c := BuildContainer()
 	scope := c.CreateScope()
-	first, err := RequireServiceForI[CInterface](scope)
+	first, err := RequireServiceForScope[CInterface](scope)
 	if first.String() != "Only A 1 and C 2" || err != nil {
 		t.Errorf(", got %v", first.String())
 		return
 	}
-	second, err := RequireServiceFor[C](scope)
+	second, err := RequireServicePtrForScope[C](scope)
 	if second.Str != "Only A 1 and C 2" || err != nil {
 		t.Errorf(", got %v", second.Str)
 	}
@@ -121,12 +121,12 @@ func TestScoped(t *testing.T) {
 
 func TestScopedOutOfScope(t *testing.T) {
 	c := BuildContainer()
-	first, err := RequireServiceI[CInterface](c)
+	first, err := RequireService[CInterface](c)
 	if err == nil {
 		t.Errorf(", got %v", first.String())
 		return
 	}
-	second, err := RequireService[C](c)
+	second, err := RequireServicePtr[C](c)
 	if err == nil {
 		t.Errorf(", got %v", second.Str)
 	}
@@ -164,21 +164,44 @@ func TestActivator(t *testing.T) {
 
 type NotInContainer struct{}
 
-func TestNoFond(t *testing.T) {
+func TestNotFound(t *testing.T) {
+	c := BuildContainer()
+	_, err := RequireServicePtr[NotInContainer](c)
+	if err == nil || !errors.Is(err, ErrDependencyNotFound) {
+		t.Errorf("Expected ErrDependencyNotFound, got %v", err)
+	}
+	t.Log(err)
+}
+
+func TestRequireInterfaceService(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
 			t.Errorf("The code did not panic")
 		}
-		if errors.Is(errors.Unwrap(r.(error)), ErrDependencyNotFound) {
+		if errors.Is(errors.Unwrap(r.(error)), ErrExtractDependencyName) {
 			return
 		}
 		t.Errorf("Error not same: %s", r.(error))
 	}()
 	c := BuildContainer()
-	_, err := RequireService[NotInContainer](c)
-
+	_, err := RequireServicePtr[CInterface](c)
+	if err == nil || !errors.Is(err, ErrDependencyNotFound) {
+		t.Errorf("Expected ErrDependencyNotFound, got %v", err)
+	}
 	t.Log(err)
+}
+func TestAddPrimitive(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("The code did not panic")
+		}
+
+		t.Logf("Error: %s", r)
+	}()
+	c := GetContainer()
+	AddSingletonWithoutInterface[int](c)
 }
 
 func TestAlreadyHas(t *testing.T) {
@@ -187,7 +210,7 @@ func TestAlreadyHas(t *testing.T) {
 		if r == nil {
 			t.Errorf("The code did not panic")
 		}
-		if r != "First type *container.C argument should be interface type" {
+		if errors.Is(errors.Unwrap(r.(error)), ErrTypeAlreadyRegistered) {
 			t.Errorf("Error not same: %s", r)
 		}
 	}()
@@ -217,13 +240,9 @@ func TestCircleDep(t *testing.T) {
 			t.Errorf("The code did not panic!")
 		}
 		err := r.(error)
-		if errors.Is(errors.Unwrap(err), ErrCircleDependency) {
-			t.Log(err)
+		if !errors.Is(errors.Unwrap(err), ErrCircleDependency) {
+			t.Errorf("Error not same: %s", r)
 		}
-		if errors.Is(errors.Unwrap(errors.Unwrap(err)), ErrCircleDependency) {
-			return
-		}
-		t.Errorf("Error not same: %s", r)
 	}()
 
 	c := GetContainer()
@@ -235,5 +254,5 @@ func TestCircleDep(t *testing.T) {
 		panic(err)
 	}
 
-	_, _ = RequireService[CircleOne](c)
+	_, _ = RequireServicePtr[CircleOne](c)
 }

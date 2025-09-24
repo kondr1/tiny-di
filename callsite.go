@@ -17,10 +17,11 @@ type callSiteInterface interface {
 
 type callSite[T any] struct {
 	name            string
-	lifetime        Lifetime
+	lifetime        lifetime
 	dependencyNames []string
 	dependencies    []callSiteInterface
-	singleton       *T
+	built           bool
+	instance        *T
 }
 
 func (c *callSite[T]) Name() string   { return c.name }
@@ -29,6 +30,8 @@ func (c *callSite[T]) Deps() []string { return c.dependencyNames }
 func (c *callSite[T]) Build(s *Scope) (any, error) { return c.build(s) }
 func (c *callSite[T]) build(s *Scope) (*T, error) {
 	switch c.lifetime {
+	case HostedService:
+		fallthrough
 	case Singleton:
 		return c.buildSingleton()
 	case Transient:
@@ -67,15 +70,15 @@ func (c *callSite[T]) constructor(s *Scope) (*T, error) {
 
 func (c *callSite[T]) BuildSingleton() (any, error) { return c.buildSingleton() }
 func (c *callSite[T]) buildSingleton() (*T, error) {
-	if c.singleton != nil {
-		return c.singleton, nil
+	if c.instance != nil {
+		return c.instance, nil
 	}
 	obj, err := c.constructor(nil)
 	if err != nil {
 		return nil, err
 	}
-	c.singleton = obj
-	return c.singleton, nil
+	c.instance = obj
+	return c.instance, nil
 }
 
 func (c *callSite[T]) BuildTransient() (any, error) { return c.buildTransient() }
@@ -103,9 +106,12 @@ func (c *callSite[T]) buildScoped(s *Scope) (*T, error) {
 }
 
 func (c *callSite[T]) BuildCallSite(container *Container) error {
+	if c.built {
+		return nil
+	}
 	dependencies := make([]callSiteInterface, 0, len(c.dependencyNames))
 	for _, depName := range c.dependencyNames {
-		site, ok := container.callSites[depName[1:]]
+		site, ok := container.callSitesRegistry[depName[1:]]
 		if !ok {
 			return fmt.Errorf("%w: %s not found for %s", ErrDependencyNotFound, depName, c.Name())
 		}

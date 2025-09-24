@@ -5,21 +5,25 @@ import (
 )
 
 type descriptorInterface interface {
-	Life() Lifetime
+	Life() lifetime
+
 	Ints() []string
+
 	Name() string
+
 	TypeOf() reflect.Type
 }
 
 type descriptor[T any] struct {
-	NameType   string
-	Interfaces []string
-	Lifetime   Lifetime
-	Type       reflect.Type
+	NameType    string
+	PtrNameType string
+	Interfaces  []string
+	Lifetime    lifetime
+	Type        reflect.Type
 }
 
 func activatorFor[T any]() *T           { return new(T) }
-func (i *descriptor[T]) Life() Lifetime { return i.Lifetime }
+func (i *descriptor[T]) Life() lifetime { return i.Lifetime }
 
 func (i *descriptor[T]) Ints() []string       { return i.Interfaces }
 func (i *descriptor[T]) Name() string         { return i.NameType }
