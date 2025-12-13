@@ -33,7 +33,7 @@ func nameForI[T any]() string { return fmt.Sprintf("%T", new(T)) }
 
 func addI[I any, T any](c *Container, lifetime lifetime) {
 	if c.built {
-		panic(fmt.Errorf("%w: You should call Build() before adding dependencies", ErrContainerAlreadyBuilt))
+		panic(fmt.Errorf("%w: Cannot add dependencies after Build()", ErrContainerAlreadyBuilt))
 	}
 	nameT := nameFor[T]()
 	nameI := nameForI[I]()
@@ -51,6 +51,12 @@ func addI[I any, T any](c *Container, lifetime lifetime) {
 	if !reflect.PointerTo(structType).Implements(interfaceType) {
 		panic(fmt.Errorf("%w: Second type argument %s should implement interface first type argument %s", ErrShouldImplementInterface, nameT, nameI))
 	}
+
+	// TODO: I'm not sure this is necessary
+	//
+	// if lifetime == Scoped && !reflect.PointerTo(structType).Implements(reflect.TypeFor[io.Closer]()) {
+	// 	panic(fmt.Errorf("%w: Second type argument %s should implement interface first type argument %s", ErrShouldImplementInterface, nameT, nameI))
+	// }
 
 	depByType, okByType := c.dependenciesRegistry[nameT]
 	_, okByInterface := c.dependenciesRegistry[nameI]
@@ -74,7 +80,7 @@ func addI[I any, T any](c *Container, lifetime lifetime) {
 }
 func add[T any](c *Container, lifetime lifetime) (*descriptor[T], *callSite[T]) {
 	if c.built {
-		panic(fmt.Errorf("%w: You should call Build() before adding dependencies", ErrContainerAlreadyBuilt))
+		panic(fmt.Errorf("%w: Cannot add dependencies after Build()", ErrContainerAlreadyBuilt))
 	}
 	name := nameFor[T]()
 	namePtr := fmt.Sprintf("%T", new(T))
@@ -144,6 +150,9 @@ func add[T any](c *Container, lifetime lifetime) (*descriptor[T], *callSite[T]) 
 // The returned scope should be used to resolve scoped services using [RequireServiceFor]
 // or [RequireServiceForT] functions.
 func (c *Container) CreateScope() *Scope {
+	if !c.built {
+		panic(fmt.Errorf("%w: You should call Build() before CreateScope()", ErrContainerNotBuilt))
+	}
 	return &Scope{
 		Container: c,
 		instances: make(map[string]any),

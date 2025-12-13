@@ -50,6 +50,11 @@ var (
 	// ErrShouldImplementInterface is returned when a type does not implement the required interface.
 	ErrShouldImplementInterface = errors.New("should implement interface")
 
+	// TODO: I'm not sure this is necessary
+	//
+	// ErrShouldImplementCloserInterface is returned when Scoped dependency not implement the io.Closer interface.
+	// ErrShouldImplementCloserInterface = errors.New("should implement io.Closer interface")
+
 	// ErrShouldImplementInitMethod is returned when a type does not have the required Init method.
 	ErrShouldImplementInitMethod = errors.New("should implement Init method")
 
@@ -61,4 +66,7 @@ var (
 	// ErrContainerAlreadyBuilt is returned when attempting to register services with a container
 	// that has already been built. Once a container is built, no new services can be registered.
 	ErrContainerAlreadyBuilt = errors.New("container already built")
+
+	// ErrCaptiveDependency occurs when a longer-lived service (e.g., singleton) depends on a shorter-lived service (e.g., scoped or transient).
+	ErrCaptiveDependency = errors.New("singleton calls scoped or transient")
 )

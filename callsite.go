@@ -3,10 +3,12 @@ package container
 import (
 	"fmt"
 	"reflect"
+	"sync"
 )
 
 type callSiteInterface interface {
 	Name() string
+	Lifetime() lifetime
 	Deps() []string
 	Build(s *Scope) (any, error)
 	BuildSingleton() (any, error)
@@ -16,16 +18,19 @@ type callSiteInterface interface {
 }
 
 type callSite[T any] struct {
-	name            string
-	lifetime        lifetime
-	dependencyNames []string
-	dependencies    []callSiteInterface
-	built           bool
-	instance        *T
+	name             string
+	lifetime         lifetime
+	dependencyNames  []string
+	dependencies     []callSiteInterface
+	built            bool
+	once             sync.Once
+	constructorError error
+	instance         *T
 }
 
-func (c *callSite[T]) Name() string   { return c.name }
-func (c *callSite[T]) Deps() []string { return c.dependencyNames }
+func (c *callSite[T]) Name() string       { return c.name }
+func (c *callSite[T]) Lifetime() lifetime { return c.lifetime }
+func (c *callSite[T]) Deps() []string     { return c.dependencyNames }
 
 func (c *callSite[T]) Build(s *Scope) (any, error) { return c.build(s) }
 func (c *callSite[T]) build(s *Scope) (*T, error) {
@@ -70,15 +75,10 @@ func (c *callSite[T]) constructor(s *Scope) (*T, error) {
 
 func (c *callSite[T]) BuildSingleton() (any, error) { return c.buildSingleton() }
 func (c *callSite[T]) buildSingleton() (*T, error) {
-	if c.instance != nil {
-		return c.instance, nil
-	}
-	obj, err := c.constructor(nil)
-	if err != nil {
-		return nil, err
-	}
-	c.instance = obj
-	return c.instance, nil
+	c.once.Do(func() {
+		c.instance, c.constructorError = c.constructor(nil)
+	})
+	return c.instance, c.constructorError
 }
 
 func (c *callSite[T]) BuildTransient() (any, error) { return c.buildTransient() }
@@ -112,6 +112,10 @@ func (c *callSite[T]) BuildCallSite(container *Container) error {
 	dependencies := make([]callSiteInterface, 0, len(c.dependencyNames))
 	for _, depName := range c.dependencyNames {
 		site, ok := container.callSitesRegistry[depName[1:]]
+		depLife := site.Lifetime()
+		if c.lifetime == Singleton && depLife == Scoped {
+			return fmt.Errorf("%w: %s is Scoped for %s is Singleton", ErrCaptiveDependency, depName, c.Name())
+		}
 		if !ok {
 			return fmt.Errorf("%w: %s not found for %s", ErrDependencyNotFound, depName, c.Name())
 		}

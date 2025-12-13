@@ -12,6 +12,7 @@ type CounterInterface interface{}
 type AInterface interface{ String() string }
 type BInterface interface{ String() string }
 type CInterface interface{ String() string }
+type DInterface interface{ String() string }
 
 type Counter struct{ I int }
 
@@ -41,6 +42,14 @@ func (c *C) String() string { return c.Str }
 func (c *C) Init(a *A, cc *Counter) error {
 	cc.I++
 	c.Str = a.Str + " and C " + strconv.Itoa(cc.I)
+	return nil
+}
+
+type D struct{ Str string }
+
+func (d *D) String() string { return d.Str }
+func (d *D) Init(c *C) error {
+	d.Str = c.Str + " and D "
 	return nil
 }
 
@@ -114,6 +123,24 @@ func TestScoped(t *testing.T) {
 	if second.Str != "Only A 1 and C 2" || err != nil {
 		t.Errorf(", got %v", second.Str)
 	}
+}
+
+func TestCaptiveDependency(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("The code did not panic")
+		}
+		if !errors.Is(errors.Unwrap(r.(error)), ErrCaptiveDependency) {
+			t.Errorf("Error not same: %s", r)
+		}
+	}()
+
+	c := GetContainer()
+
+	AddSingleton[DInterface, D](c)
+
+	c.Build()
 }
 
 func TestScopedOutOfScope(t *testing.T) {
@@ -194,8 +221,9 @@ func TestAddPrimitive(t *testing.T) {
 		if r == nil {
 			t.Errorf("The code did not panic")
 		}
-
-		t.Logf("Error: %s", r)
+		if !errors.Is(errors.Unwrap(r.(error)), ErrShouldBeStructType) {
+			t.Errorf("Error not same: %s", r)
+		}
 	}()
 	c := GetContainer()
 	AddSingletonWithoutInterface[int](c)
@@ -207,13 +235,29 @@ func TestAlreadyHas(t *testing.T) {
 		if r == nil {
 			t.Errorf("The code did not panic")
 		}
-		if errors.Is(errors.Unwrap(r.(error)), ErrTypeAlreadyRegistered) {
+		if !errors.Is(errors.Unwrap(r.(error)), ErrTypeAlreadyRegistered) {
 			t.Errorf("Error not same: %s", r)
 		}
 	}()
 	c := GetContainer()
 
-	AddScoped[C, CInterface](c)
+	AddScoped[CInterface, C](c)
+	c.Build()
+}
+
+func TestAlreadyHasInterface(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("The code did not panic")
+		}
+		if !errors.Is(errors.Unwrap(r.(error)), ErrTypeAlreadyRegistered) {
+			t.Errorf("Error not same: %s", r)
+		}
+	}()
+	c := GetContainer()
+
+	AddScoped[CInterface, D](c)
 	c.Build()
 }
 
