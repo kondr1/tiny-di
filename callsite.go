@@ -48,6 +48,7 @@ func (c *callSite[T]) build(s *Scope) (*T, error) {
 	}
 }
 
+func activatorFor[T any]() *T                            { return new(T) }
 func (c *callSite[T]) Constructor(s *Scope) (any, error) { return c.constructor(s) }
 func (c *callSite[T]) constructor(s *Scope) (*T, error) {
 	resolved := activatorFor[T]()

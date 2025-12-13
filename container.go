@@ -1,6 +1,7 @@
 package container
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"slices"
@@ -22,10 +23,11 @@ const (
 // The container must be built using the Build method before services can be resolved.
 // Once built, no new services can be registered.
 type Container struct {
-	dependenciesRegistry map[string]descriptorInterface // map[string]item[T]
-	callSitesRegistry    map[string]callSiteInterface   // callSite registry
-	global               *Scope
-	built                bool
+	callSitesRegistry  map[string]callSiteInterface
+	hostedServiceSites []callSiteInterface // HostedService callSites in registration order
+	global             *Scope
+	built              bool
+	hostedServices     []IHostedService
 }
 
 func nameFor[T any]() string  { return fmt.Sprintf("%T", *new(T)) }
@@ -52,18 +54,10 @@ func addI[I any, T any](c *Container, lifetime lifetime) {
 		panic(fmt.Errorf("%w: Second type argument %s should implement interface first type argument %s", ErrShouldImplementInterface, nameT, nameI))
 	}
 
-	// TODO: I'm not sure this is necessary
-	//
-	// if lifetime == Scoped && !reflect.PointerTo(structType).Implements(reflect.TypeFor[io.Closer]()) {
-	// 	panic(fmt.Errorf("%w: Second type argument %s should implement interface first type argument %s", ErrShouldImplementInterface, nameT, nameI))
-	// }
-
-	depByType, okByType := c.dependenciesRegistry[nameT]
-	_, okByInterface := c.dependenciesRegistry[nameI]
+	depByType, okByType := c.callSitesRegistry[nameT]
+	_, okByInterface := c.callSitesRegistry[nameI]
 	if okByType && !okByInterface {
-		item := depByType.(*descriptor[T])
-		item.Interfaces = append(item.Interfaces, nameI)
-		c.dependenciesRegistry[nameI] = depByType
+		c.callSitesRegistry[nameI] = depByType
 		return
 	}
 	if okByType && okByInterface {
@@ -73,27 +67,16 @@ func addI[I any, T any](c *Container, lifetime lifetime) {
 		panic(fmt.Errorf("%w: Dependency %s already exists in container", ErrTypeAlreadyRegistered, nameI))
 	}
 
-	dep, callSite := add[T](c, lifetime)
-	dep.Interfaces = append(dep.Interfaces, nameI)
-	c.dependenciesRegistry[nameI] = dep
+	callSite := add[T](c, lifetime)
 	c.callSitesRegistry[nameI] = callSite
 }
-func add[T any](c *Container, lifetime lifetime) (*descriptor[T], *callSite[T]) {
+func add[T any](c *Container, lifetime lifetime) *callSite[T] {
 	if c.built {
 		panic(fmt.Errorf("%w: Cannot add dependencies after Build()", ErrContainerAlreadyBuilt))
 	}
-	name := nameFor[T]()
-	namePtr := fmt.Sprintf("%T", new(T))
-	dep := &descriptor[T]{
-		NameType:    name,
-		PtrNameType: namePtr,
-		Interfaces:  []string{},
-		Lifetime:    lifetime,
-		Type:        reflect.TypeFor[T](),
-	}
-	if c.dependenciesRegistry == nil {
-		c.dependenciesRegistry = make(map[string]descriptorInterface)
-	}
+	depNameType := nameFor[T]()
+	depPtrNameType := fmt.Sprintf("%T", new(T))
+	depType := reflect.TypeFor[T]()
 	if c.callSitesRegistry == nil {
 		c.callSitesRegistry = make(map[string]callSiteInterface)
 	}
@@ -104,13 +87,13 @@ func add[T any](c *Container, lifetime lifetime) (*descriptor[T], *callSite[T]) 
 			instances: make(map[string]any),
 		}
 	}
-	kind := dep.Type.Kind()
+	kind := depType.Kind()
 	if kind != reflect.Struct {
-		panic(fmt.Errorf("%w: Type %s should be struct type", ErrShouldBeStructType, dep.NameType))
+		panic(fmt.Errorf("%w: Type %s should be struct type", ErrShouldBeStructType, depNameType))
 	}
-	initFunc, ok := reflect.PointerTo(dep.Type).MethodByName("Init")
+	initFunc, ok := reflect.PointerTo(depType).MethodByName("Init")
 	if !ok {
-		panic(fmt.Errorf("%w: Init method not found for %s dependency", ErrShouldImplementInitMethod, dep.NameType))
+		panic(fmt.Errorf("%w: Init method not found for %s dependency", ErrShouldImplementInitMethod, depNameType))
 	}
 	dependencies := []string{}
 	for i := range initFunc.Type.NumIn() {
@@ -121,28 +104,31 @@ func add[T any](c *Container, lifetime lifetime) (*descriptor[T], *callSite[T]) 
 		name := arg.String()
 		if arg.Kind() == reflect.Struct || arg.Kind() == reflect.Ptr || arg.Kind() == reflect.Interface {
 			if slices.Contains(dependencies, name) {
-				panic("Dependency " + name + " already exists for " + dep.NameType)
+				panic("Dependency " + name + " already exists for " + depNameType)
 			}
 			dependencies = append(dependencies, name)
 		}
 	}
 
-	_, ok = c.dependenciesRegistry[dep.NameType]
+	_, ok = c.callSitesRegistry[depNameType]
 	if ok {
-		panic("Dependency " + dep.NameType + " already exists in container")
+		panic("Dependency " + depNameType + " already exists in container")
 	}
 	callSite := &callSite[T]{
-		name:            dep.NameType,
+		name:            depNameType,
 		lifetime:        lifetime,
 		dependencyNames: dependencies,
 		dependencies:    nil,
 		instance:        nil,
 	}
-	c.callSitesRegistry[dep.NameType] = callSite
-	c.callSitesRegistry[dep.PtrNameType] = callSite
-	c.dependenciesRegistry[dep.NameType] = dep
-	c.dependenciesRegistry[dep.PtrNameType] = dep
-	return dep, callSite
+	c.callSitesRegistry[depNameType] = callSite
+	c.callSitesRegistry[depPtrNameType] = callSite
+
+	if lifetime == HostedService {
+		c.hostedServiceSites = append(c.hostedServiceSites, callSite)
+	}
+
+	return callSite
 }
 
 // CreateScope creates a new dependency injection scope for scoped service resolution.
@@ -192,7 +178,7 @@ func (c *Container) checkCircle(typeName string, visited []string) error {
 //   - Marks the container as built (no more registrations allowed)
 func (c *Container) Build() {
 	defer func() { c.built = true }()
-	if c.dependenciesRegistry == nil {
+	if c.callSitesRegistry == nil {
 		return
 	}
 
@@ -207,10 +193,22 @@ func (c *Container) Build() {
 			panic(err)
 		}
 	}
+
+	for _, site := range c.hostedServiceSites {
+		instance, err := site.Build(c.global)
+		if err != nil {
+			panic(fmt.Errorf("failed to build hosted service %s: %w", site.Name(), err))
+		}
+		if hostedSvc, ok := instance.(IHostedService); ok {
+			c.hostedServices = append(c.hostedServices, hostedSvc)
+		}
+	}
 }
 
 // AddHostedService registers a hosted service with the container.
-// TODO: HostedService is not implemented yet.
+//
+// HostedService must implement IHostedService interface with Start/Stop methods.
+// Services are started in registration order and stopped in reverse order.
 func AddHostedService[T any](c *Container) { add[T](c, HostedService) }
 
 // AddTransientWithoutInterface registers a transient service without an interface mapping.
@@ -274,4 +272,43 @@ func RequireServicePtr[T any](c *Container) (*T, error) {
 // Shuld be used only for pointer to struct types or interface types.
 func RequireService[T any](c *Container) (T, error) {
 	return RequireServiceForScope[T](c.global)
+}
+
+// StartAsync starts all registered HostedService instances.
+//
+// Services are started in registration order. If any service fails to start,
+// the error is returned immediately and remaining services are not started.
+//
+// The provided context can be used for cancellation and timeouts.
+func (c *Container) StartAsync(ctx context.Context) error {
+	if !c.built {
+		return fmt.Errorf("%w: You should call Build() before StartAsync()", ErrContainerNotBuilt)
+	}
+
+	for i, svc := range c.hostedServices {
+		if err := svc.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start hosted service #%d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// StopAsync stops all registered HostedService instances.
+//
+// Services are stopped in reverse registration order (LIFO).
+// All services are stopped regardless of errors, and the first error is returned.
+//
+// The provided context typically includes a timeout for graceful shutdown.
+func (c *Container) StopAsync(ctx context.Context) error {
+	if !c.built {
+		return fmt.Errorf("%w: You should call Build() before StopAsync()", ErrContainerNotBuilt)
+	}
+
+	var firstErr error
+	for i := len(c.hostedServices) - 1; i >= 0; i-- {
+		if err := c.hostedServices[i].Stop(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }

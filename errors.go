@@ -50,11 +50,6 @@ var (
 	// ErrShouldImplementInterface is returned when a type does not implement the required interface.
 	ErrShouldImplementInterface = errors.New("should implement interface")
 
-	// TODO: I'm not sure this is necessary
-	//
-	// ErrShouldImplementCloserInterface is returned when Scoped dependency not implement the io.Closer interface.
-	// ErrShouldImplementCloserInterface = errors.New("should implement io.Closer interface")
-
 	// ErrShouldImplementInitMethod is returned when a type does not have the required Init method.
 	ErrShouldImplementInitMethod = errors.New("should implement Init method")
 

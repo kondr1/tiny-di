@@ -1,6 +1,7 @@
 package container
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -66,8 +67,6 @@ func BuildContainer() *Container {
 	c.Build()
 	return c
 }
-
-// TODO: Добавить HostedService
 
 func TestSingleton(t *testing.T) {
 	c := BuildContainer()
@@ -290,4 +289,104 @@ func TestCircleDep(t *testing.T) {
 	c.Build()
 
 	_, _ = RequireServicePtr[CircleOne](c)
+}
+
+type MyHostedService struct {
+	started bool
+	stopped bool
+}
+
+func (h *MyHostedService) Init() error { return nil }
+
+func (h *MyHostedService) Start(ctx context.Context) error {
+	if h.started {
+		return fmt.Errorf("already started")
+	}
+	h.started = true
+	return nil
+}
+
+func (h *MyHostedService) Stop(ctx context.Context) error {
+	if h.stopped {
+		return fmt.Errorf("already stoped")
+	}
+	h.stopped = true
+	return nil
+}
+
+func TestHostedService(t *testing.T) {
+	c := &Container{}
+	AddHostedService[MyHostedService](c)
+	c.Build()
+
+	ctx := context.Background()
+	err := c.StartAsync(ctx)
+	if err != nil {
+		t.Errorf("StartAsync failed: %v", err)
+	}
+
+	// Check that service was started
+	if len(c.hostedServices) != 1 {
+		t.Errorf("Expected 1 hosted service, got %d", len(c.hostedServices))
+	}
+
+	svc, err := RequireServicePtr[MyHostedService](c)
+
+	if err != nil {
+		t.Errorf("Service not found in container: %v", err)
+	}
+	if !svc.started {
+		t.Errorf("Service was not started")
+	}
+
+	err = c.StopAsync(ctx)
+	if err != nil {
+		t.Errorf("StopAsync failed: %v", err)
+	}
+
+	if !svc.stopped {
+		t.Errorf("Service was not stopped")
+	}
+}
+
+type CountingHostedService struct {
+	startCount int
+	stopCount  int
+}
+
+func (h *CountingHostedService) Init() error { return nil }
+
+func (h *CountingHostedService) Start(ctx context.Context) error {
+	h.startCount++
+	return nil
+}
+
+func (h *CountingHostedService) Stop(ctx context.Context) error {
+	h.stopCount++
+	return nil
+}
+
+func TestHostedServiceNoDuplicates(t *testing.T) {
+	c := &Container{}
+	AddHostedService[CountingHostedService](c)
+	c.Build()
+
+	t.Logf("Number of hosted services: %d", len(c.hostedServices))
+
+	ctx := context.Background()
+	c.StartAsync(ctx)
+
+	svc, err := RequireServicePtr[CountingHostedService](c)
+	if err != nil {
+		t.Errorf("Service not found in container: %v", err)
+	}
+	if svc.startCount != 1 {
+		t.Errorf("Start should be called once, got %d times", svc.startCount)
+	}
+
+	c.StopAsync(ctx)
+
+	if svc.stopCount != 1 {
+		t.Errorf("Stop should be called once, got %d times", svc.stopCount)
+	}
 }

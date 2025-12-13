@@ -2,7 +2,7 @@ package container
 
 import "context"
 
-// WIP: IHostedService defines the interface for long-running background services.
+// IHostedService defines the interface for long-running background services.
 type IHostedService interface {
 	// Start is called to start the hosted service.
 	// The provided context can be used to handle cancellation and timeouts.
