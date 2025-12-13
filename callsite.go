@@ -114,7 +114,7 @@ func (c *callSite[T]) BuildCallSite(container *Container) error {
 	for _, depName := range c.dependencyNames {
 		site, ok := container.callSitesRegistry[depName[1:]]
 		depLife := site.Lifetime()
-		if c.lifetime == Singleton && depLife == Scoped {
+		if (c.lifetime == Singleton || c.lifetime == HostedService) && depLife == Scoped {
 			return fmt.Errorf("%w: %s is Scoped for %s is Singleton", ErrCaptiveDependency, depName, c.Name())
 		}
 		if !ok {

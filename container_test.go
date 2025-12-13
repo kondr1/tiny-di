@@ -325,7 +325,6 @@ func TestHostedService(t *testing.T) {
 		t.Errorf("StartAsync failed: %v", err)
 	}
 
-	// Check that service was started
 	if len(c.hostedServices) != 1 {
 		t.Errorf("Expected 1 hosted service, got %d", len(c.hostedServices))
 	}
@@ -389,4 +388,262 @@ func TestHostedServiceNoDuplicates(t *testing.T) {
 	if svc.stopCount != 1 {
 		t.Errorf("Stop should be called once, got %d times", svc.stopCount)
 	}
+}
+
+func TestStartAsyncBeforeBuild(t *testing.T) {
+	c := &Container{}
+	AddHostedService[MyHostedService](c)
+
+	ctx := context.Background()
+	err := c.StartAsync(ctx)
+	if err == nil {
+		t.Errorf("Expected error when calling StartAsync before Build")
+	}
+	if !errors.Is(err, ErrContainerNotBuilt) {
+		t.Errorf("Expected ErrContainerNotBuilt, got %v", err)
+	}
+}
+
+func TestStopAsyncBeforeBuild(t *testing.T) {
+	c := &Container{}
+	AddHostedService[MyHostedService](c)
+
+	ctx := context.Background()
+	err := c.StopAsync(ctx)
+	if err == nil {
+		t.Errorf("Expected error when calling StopAsync before Build")
+	}
+	if !errors.Is(err, ErrContainerNotBuilt) {
+		t.Errorf("Expected ErrContainerNotBuilt, got %v", err)
+	}
+}
+
+type FailingStartService struct{}
+
+func (f *FailingStartService) Init() error { return nil }
+func (f *FailingStartService) Start(ctx context.Context) error {
+	return fmt.Errorf("startup failed")
+}
+func (f *FailingStartService) Stop(ctx context.Context) error { return nil }
+
+func TestHostedServiceStartupError(t *testing.T) {
+	c := &Container{}
+	AddHostedService[MyHostedService](c)
+	AddHostedService[FailingStartService](c)
+	AddHostedService[CountingHostedService](c)
+	c.Build()
+
+	ctx := context.Background()
+	err := c.StartAsync(ctx)
+	if err == nil {
+		t.Errorf("Expected error when service fails to start")
+	}
+
+	svc1, _ := RequireServicePtr[MyHostedService](c)
+	if !svc1.started {
+		t.Errorf("First service should have started")
+	}
+
+	svc3, _ := RequireServicePtr[CountingHostedService](c)
+	if svc3.startCount != 0 {
+		t.Errorf("Third service should not have started, but startCount=%d", svc3.startCount)
+	}
+}
+
+type FailingStopService struct {
+	started bool
+}
+
+func (f *FailingStopService) Init() error { return nil }
+func (f *FailingStopService) Start(ctx context.Context) error {
+	f.started = true
+	return nil
+}
+func (f *FailingStopService) Stop(ctx context.Context) error {
+	return fmt.Errorf("shutdown failed")
+}
+
+func TestHostedServiceShutdownError(t *testing.T) {
+	c := &Container{}
+	AddHostedService[CountingHostedService](c)
+	AddHostedService[FailingStopService](c)
+	AddHostedService[MyHostedService](c)
+	c.Build()
+
+	ctx := context.Background()
+	c.StartAsync(ctx)
+
+	err := c.StopAsync(ctx)
+	if err == nil {
+		t.Errorf("Expected error when service fails to stop")
+	}
+
+	svc1, _ := RequireServicePtr[CountingHostedService](c)
+	if svc1.stopCount != 1 {
+		t.Errorf("First service should have stopped, stopCount=%d", svc1.stopCount)
+	}
+
+	svc3, _ := RequireServicePtr[MyHostedService](c)
+	if !svc3.stopped {
+		t.Errorf("Third service should have stopped")
+	}
+}
+
+type OrderTracker struct {
+	startSeq []string
+	stopSeq  []string
+}
+
+func (o *OrderTracker) Init() error { return nil }
+func (o *OrderTracker) RecordStart(name string) {
+	o.startSeq = append(o.startSeq, name)
+}
+func (o *OrderTracker) RecordStop(name string) {
+	o.stopSeq = append(o.stopSeq, name)
+}
+
+type FirstOrderedService struct{ tracker *OrderTracker }
+
+func (f *FirstOrderedService) Init(t *OrderTracker) error {
+	f.tracker = t
+	return nil
+}
+func (f *FirstOrderedService) Start(ctx context.Context) error {
+	f.tracker.RecordStart("first")
+	return nil
+}
+func (f *FirstOrderedService) Stop(ctx context.Context) error {
+	f.tracker.RecordStop("first")
+	return nil
+}
+
+type SecondOrderedService struct{ tracker *OrderTracker }
+
+func (s *SecondOrderedService) Init(t *OrderTracker) error {
+	s.tracker = t
+	return nil
+}
+func (s *SecondOrderedService) Start(ctx context.Context) error {
+	s.tracker.RecordStart("second")
+	return nil
+}
+func (s *SecondOrderedService) Stop(ctx context.Context) error {
+	s.tracker.RecordStop("second")
+	return nil
+}
+
+type ThirdOrderedService struct{ tracker *OrderTracker }
+
+func (t *ThirdOrderedService) Init(tracker *OrderTracker) error {
+	t.tracker = tracker
+	return nil
+}
+func (t *ThirdOrderedService) Start(ctx context.Context) error {
+	t.tracker.RecordStart("third")
+	return nil
+}
+func (t *ThirdOrderedService) Stop(ctx context.Context) error {
+	t.tracker.RecordStop("third")
+	return nil
+}
+
+func TestMultipleHostedServicesOrdering(t *testing.T) {
+	c := &Container{}
+	AddSingletonWithoutInterface[OrderTracker](c)
+	AddHostedService[FirstOrderedService](c)
+	AddHostedService[SecondOrderedService](c)
+	AddHostedService[ThirdOrderedService](c)
+	c.Build()
+
+	if len(c.hostedServices) != 3 {
+		t.Errorf("Expected 3 hosted services, got %d", len(c.hostedServices))
+	}
+
+	ctx := context.Background()
+	err := c.StartAsync(ctx)
+	if err != nil {
+		t.Errorf("StartAsync failed: %v", err)
+	}
+
+	tracker, _ := RequireServicePtr[OrderTracker](c)
+
+	// FIFO
+	expectedStart := []string{"first", "second", "third"}
+	if len(tracker.startSeq) != 3 {
+		t.Errorf("Expected 3 starts, got %d", len(tracker.startSeq))
+	}
+	for i, name := range expectedStart {
+		if i >= len(tracker.startSeq) || tracker.startSeq[i] != name {
+			t.Errorf("Start order mismatch at %d: expected %s, got %v", i, name, tracker.startSeq)
+		}
+	}
+
+	err = c.StopAsync(ctx)
+	if err != nil {
+		t.Errorf("StopAsync failed: %v", err)
+	}
+
+	// LIFO
+	expectedStop := []string{"third", "second", "first"}
+	if len(tracker.stopSeq) != 3 {
+		t.Errorf("Expected 3 stops, got %d", len(tracker.stopSeq))
+	}
+	for i, name := range expectedStop {
+		if i >= len(tracker.stopSeq) || tracker.stopSeq[i] != name {
+			t.Errorf("Stop order mismatch at %d: expected %s, got %v", i, name, tracker.stopSeq)
+		}
+	}
+}
+
+type ServiceWithFailingInit struct{}
+
+func (s *ServiceWithFailingInit) Init() error {
+	return fmt.Errorf("init failed")
+}
+
+func TestInitMethodError(t *testing.T) {
+	c := &Container{}
+	AddSingletonWithoutInterface[ServiceWithFailingInit](c)
+	c.Build()
+
+	_, err := RequireServicePtr[ServiceWithFailingInit](c)
+	if err == nil {
+		t.Errorf("Expected error when Init fails")
+	}
+	if !errors.Is(err, ErrFailedToBuildDependency) {
+		t.Errorf("Expected ErrFailedToBuildDependency, got %v", err)
+	}
+}
+
+type ScopedService struct{}
+
+func (s *ScopedService) Init() error { return nil }
+
+type HostedServiceWithScopedDep struct{}
+
+func (h *HostedServiceWithScopedDep) Init(s *ScopedService) error { return nil }
+func (h *HostedServiceWithScopedDep) Start(ctx context.Context) error {
+	return nil
+}
+func (h *HostedServiceWithScopedDep) Stop(ctx context.Context) error { return nil }
+
+func TestHostedServiceCaptiveDependency(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("Expected panic when HostedService depends on Scoped")
+		}
+		err, ok := r.(error)
+		if !ok {
+			t.Errorf("Expected error in panic, got %T", r)
+		}
+		if !errors.Is(err, ErrCaptiveDependency) {
+			t.Errorf("Expected ErrCaptiveDependency, got %v", err)
+		}
+	}()
+
+	c := &Container{}
+	AddScopedWithoutInterface[ScopedService](c)
+	AddHostedService[HostedServiceWithScopedDep](c)
+	c.Build()
 }
