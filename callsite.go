@@ -11,9 +11,6 @@ type callSiteInterface interface {
 	Lifetime() lifetime
 	Deps() []string
 	Build(s *Scope) (any, error)
-	BuildSingleton() (any, error)
-	BuildTransient() (any, error)
-	BuildScoped(s *Scope) (any, error)
 	BuildCallSite(c *Container) error
 }
 
@@ -49,8 +46,8 @@ func (c *callSite[T]) build(s *Scope) (*T, error) {
 	}
 }
 
-func activatorFor[T any]() *T                            { return new(T) }
-func (c *callSite[T]) Constructor(s *Scope) (any, error) { return c.constructor(s) }
+func activatorFor[T any]() *T { return new(T) }
+
 func (c *callSite[T]) constructor(s *Scope) (*T, error) {
 	// Build dependencies
 	deps := make([]any, len(c.dependencies))
@@ -91,7 +88,6 @@ func (c *callSite[T]) constructor(s *Scope) (*T, error) {
 	return resolved, nil
 }
 
-func (c *callSite[T]) BuildSingleton() (any, error) { return c.buildSingleton() }
 func (c *callSite[T]) buildSingleton() (*T, error) {
 	c.once.Do(func() {
 		c.instance, c.constructorError = c.constructor(nil)
@@ -99,12 +95,10 @@ func (c *callSite[T]) buildSingleton() (*T, error) {
 	return c.instance, c.constructorError
 }
 
-func (c *callSite[T]) BuildTransient() (any, error) { return c.buildTransient() }
 func (c *callSite[T]) buildTransient() (*T, error) {
 	return c.constructor(nil)
 }
 
-func (c *callSite[T]) BuildScoped(s *Scope) (any, error) { return c.buildScoped(s) }
 func (c *callSite[T]) buildScoped(s *Scope) (*T, error) {
 	if s == nil {
 		return nil, ErrScopeIsNil
@@ -127,9 +121,12 @@ func (c *callSite[T]) BuildCallSite(container *Container) error {
 	if c.built {
 		return nil
 	}
+
 	dependencies := make([]callSiteInterface, 0, len(c.dependencyNames))
+
 	for _, depName := range c.dependencyNames {
-		site, ok := container.callSitesRegistry[depName[1:]]
+		// depName = strings.TrimPrefix(depName, "*")
+		site, ok := container.callSitesRegistry[depName]
 		depLife := site.Lifetime()
 		if (c.lifetime == Singleton || c.lifetime == HostedService) && depLife == Scoped {
 			return fmt.Errorf("%w: %s is Scoped for %s is Singleton", ErrCaptiveDependency, depName, c.Name())
