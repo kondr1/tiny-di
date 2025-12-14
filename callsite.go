@@ -22,6 +22,7 @@ type callSite[T any] struct {
 	lifetime         lifetime
 	dependencyNames  []string
 	dependencies     []callSiteInterface
+	initMethod       reflect.Method
 	built            bool
 	once             sync.Once
 	constructorError error
@@ -53,6 +54,7 @@ func (c *callSite[T]) Constructor(s *Scope) (any, error) { return c.constructor(
 func (c *callSite[T]) constructor(s *Scope) (*T, error) {
 	resolved := activatorFor[T]()
 	args := make([]reflect.Value, 0)
+	args = append(args, reflect.ValueOf(resolved))
 	for _, v := range c.dependencies {
 		dep, err := v.Build(s)
 		if err != nil {
@@ -61,10 +63,8 @@ func (c *callSite[T]) constructor(s *Scope) (*T, error) {
 		args = append(args, reflect.ValueOf(dep))
 	}
 
-	errVal := reflect.
-		ValueOf(resolved).
-		MethodByName("Init").
-		Call(args)
+	errVal := c.initMethod.Func.Call(args)
+
 	errValf := errVal[0]
 	if errValf.Interface() != nil {
 		err := errValf.Interface().(error)

@@ -601,6 +601,26 @@ func (s *ServiceWithFailingInit) Init() error {
 	return fmt.Errorf("init failed")
 }
 
+type ServiceWithBadInitSignature struct{}
+
+func (s *ServiceWithBadInitSignature) Init() {} // No error return!
+
+func TestBadInitSignature(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("Expected panic when Init doesn't return error")
+		}
+		err := r.(error)
+		if !errors.Is(err, ErrShouldImplementInitMethod) {
+			t.Errorf("Expected ErrShouldImplementInitMethod, got %v", err)
+		}
+	}()
+
+	c := &Container{}
+	AddSingletonWithoutInterface[ServiceWithBadInitSignature](c)
+}
+
 func TestInitMethodError(t *testing.T) {
 	c := &Container{}
 	AddSingletonWithoutInterface[ServiceWithFailingInit](c)

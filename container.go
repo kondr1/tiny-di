@@ -95,6 +95,14 @@ func add[T any](c *Container, lifetime lifetime) *callSite[T] {
 	if !ok {
 		panic(fmt.Errorf("%w: Init method not found for %s dependency", ErrShouldImplementInitMethod, depNameType))
 	}
+	// Validate Init signature: must return exactly one error value
+	if initFunc.Type.NumOut() != 1 {
+		panic(fmt.Errorf("%w: Init method for %s must return exactly one value (error), got %d", ErrShouldImplementInitMethod, depNameType, initFunc.Type.NumOut()))
+	}
+	errorType := reflect.TypeOf((*error)(nil)).Elem()
+	if !initFunc.Type.Out(0).Implements(errorType) {
+		panic(fmt.Errorf("%w: Init method for %s must return error, got %s", ErrShouldImplementInitMethod, depNameType, initFunc.Type.Out(0)))
+	}
 	dependencies := []string{}
 	for i := range initFunc.Type.NumIn() {
 		if i == 0 {
@@ -119,6 +127,7 @@ func add[T any](c *Container, lifetime lifetime) *callSite[T] {
 		lifetime:        lifetime,
 		dependencyNames: dependencies,
 		dependencies:    nil,
+		initMethod:      initFunc,
 		instance:        nil,
 	}
 	c.callSitesRegistry[depNameType] = callSite
