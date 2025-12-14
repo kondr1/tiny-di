@@ -52,14 +52,30 @@ func (c *callSite[T]) build(s *Scope) (*T, error) {
 func activatorFor[T any]() *T                            { return new(T) }
 func (c *callSite[T]) Constructor(s *Scope) (any, error) { return c.constructor(s) }
 func (c *callSite[T]) constructor(s *Scope) (*T, error) {
-	resolved := activatorFor[T]()
-	args := make([]reflect.Value, 0)
-	args = append(args, reflect.ValueOf(resolved))
-	for _, v := range c.dependencies {
+	// Build dependencies
+	deps := make([]any, len(c.dependencies))
+	for i, v := range c.dependencies {
 		dep, err := v.Build(s)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build dependency %s: %w", v.Name(), err)
 		}
+		deps[i] = dep
+	}
+
+	resolved := activatorFor[T]()
+
+	if ok, err := c.tryFastInit(resolved, deps); ok {
+		if err != nil {
+			err = fmt.Errorf("%w: for %s: %w", ErrFailedToBuildDependency, c.Name(), err)
+			return nil, err
+		}
+		return resolved, nil
+	}
+
+	// Slow path: reflection
+	args := make([]reflect.Value, 0, len(deps)+1)
+	args = append(args, reflect.ValueOf(resolved))
+	for _, dep := range deps {
 		args = append(args, reflect.ValueOf(dep))
 	}
 
@@ -68,7 +84,8 @@ func (c *callSite[T]) constructor(s *Scope) (*T, error) {
 	errValf := errVal[0]
 	if errValf.Interface() != nil {
 		err := errValf.Interface().(error)
-		return nil, fmt.Errorf("%w: for %s: %w", ErrFailedToBuildDependency, c.Name(), err)
+		err = fmt.Errorf("%w: for %s: %w", ErrFailedToBuildDependency, c.Name(), err)
+		return nil, err
 	}
 
 	return resolved, nil
