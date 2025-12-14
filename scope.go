@@ -26,12 +26,25 @@ func unwrapPtr[T any](v any) (T, error) {
 		return *new(T), fmt.Errorf("failed unwrap of type %T. Value is nil", *new(T))
 	}
 	castTPtr, ok := v.(T)
-	if !ok {
-		if reflect.ValueOf(v).Kind() == reflect.Ptr && reflect.ValueOf(v).Elem().Kind() == reflect.Ptr {
-			return unwrapPtr[T](reflect.ValueOf(v).Elem().Interface())
+	if ok {
+		return castTPtr, nil
+	}
+
+	val := reflect.ValueOf(v)
+	if val.Kind() == reflect.Ptr {
+		elem := val.Elem()
+		if elem.IsValid() && elem.Kind() == reflect.Ptr {
+			return unwrapPtr[T](elem.Interface())
+		}
+		// Try to cast dereferenced value to T
+		if elem.IsValid() {
+			if result, ok := elem.Interface().(T); ok {
+				return result, nil
+			}
 		}
 	}
-	return castTPtr, nil
+
+	return *new(T), fmt.Errorf("failed to unwrap type %T to %T", v, *new(T))
 }
 
 func unwrapT[T any](v any) (*T, error) {
@@ -39,10 +52,22 @@ func unwrapT[T any](v any) (*T, error) {
 		return nil, fmt.Errorf("failed unwrap of type %T. Value is nil", *new(T))
 	}
 	castTPtr, ok := v.(*T)
-	if !ok {
-		return nil, fmt.Errorf("failed unwrap of type %T", *new(T))
+	if ok {
+		return castTPtr, nil
 	}
-	return castTPtr, nil
+
+	// If v is a pointer to pointer, try to dereference once
+	val := reflect.ValueOf(v)
+	if val.Kind() == reflect.Ptr {
+		elem := val.Elem()
+		if elem.IsValid() {
+			if result, ok := elem.Interface().(*T); ok {
+				return result, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("failed unwrap of type %T to *%T", v, *new(T))
 }
 
 // RequireServicePtrForScope resolves a service instance of type T from the specified scope.

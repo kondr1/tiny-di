@@ -75,7 +75,7 @@ func add[T any](c *Container, lifetime lifetime) *callSite[T] {
 		panic(fmt.Errorf("%w: Cannot add dependencies after Build()", ErrContainerAlreadyBuilt))
 	}
 	depNameType := nameFor[T]()
-	depPtrNameType := fmt.Sprintf("%T", new(T))
+	depPtrNameType := nameForI[T]()
 	depType := reflect.TypeFor[T]()
 	if c.callSitesRegistry == nil {
 		c.callSitesRegistry = make(map[string]callSiteInterface)
@@ -264,6 +264,68 @@ func AddSingleton[I any, T any](c *Container) { addI[I, T](c, Singleton) }
 //   - I: The interface type that will be used for service resolution
 //   - T: The concrete implementation type that implements interface I
 func AddScoped[I any, T any](c *Container) { addI[I, T](c, Scoped) }
+
+// AddValue registers an existing value as a singleton service.
+//
+// This method allows registering pre-constructed instances (like context.Context, config objects, etc.)
+// without requiring an Init method. The value is stored as-is and returned whenever requested.
+//
+// Type parameters:
+//   - T: The type of the value to register (can be interface, struct, or any other type)
+//
+// Example:
+//
+//	ctx := context.Background()
+//	AddValue[context.Context](container, ctx)
+func AddValue[T any](c *Container, value T) {
+	if c.built {
+		panic(fmt.Errorf("%w: Cannot add dependencies after Build()", ErrContainerAlreadyBuilt))
+	}
+
+	depNameType := nameFor[T]()
+	depPtrNameType := nameForI[T]()
+
+	if c.callSitesRegistry == nil {
+		c.callSitesRegistry = make(map[string]callSiteInterface)
+	}
+	if c.global == nil {
+		c.global = &Scope{
+			Container: c,
+			isGlobal:  true,
+			instances: make(map[string]any),
+		}
+	}
+
+	_, ok := c.callSitesRegistry[depNameType]
+	if ok {
+		panic(fmt.Errorf("%w: Dependency %s already exists in container", ErrTypeAlreadyRegistered, depNameType))
+	}
+
+	instance := new(T)
+	*instance = value
+
+	callSite := &callSite[T]{
+		name:            depNameType,
+		lifetime:        Singleton,
+		dependencyNames: []string{},
+		dependencies:    nil,
+		initMethod:      reflect.Method{},
+		instance:        nil,
+	}
+
+	callSite.once.Do(func() {
+		callSite.instance = instance
+		callSite.constructorError = nil
+	})
+
+	c.callSitesRegistry[depNameType] = callSite
+	c.callSitesRegistry[depPtrNameType] = callSite
+
+	if strings.HasPrefix(depNameType, "*") {
+		depNameWithoutPtr := strings.TrimPrefix(depNameType, "*")
+		c.callSitesRegistry[depNameWithoutPtr] = callSite
+	}
+}
 
 // RequireServicePtr resolves a service instance from the container's global scope.
 //

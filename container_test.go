@@ -667,3 +667,115 @@ func TestHostedServiceCaptiveDependency(t *testing.T) {
 	AddHostedService[HostedServiceWithScopedDep](c)
 	c.Build()
 }
+
+type TestKeys int
+
+const TestKey TestKeys = iota
+
+func TestAddValueWithContext(t *testing.T) {
+	c := &Container{}
+
+	ctx := context.WithValue(context.Background(), TestKey, "test-value")
+
+	AddValue(c, ctx)
+	c.Build()
+
+	resolvedCtx, err := RequireService[context.Context](c)
+	if err != nil {
+		t.Fatalf("Failed to resolve context: %v", err)
+	}
+
+	value := resolvedCtx.Value(TestKey)
+	if value != "test-value" {
+		t.Errorf("Expected context value 'test-value', got %v", value)
+	}
+
+	resolvedCtx2, err := RequireService[context.Context](c)
+	if err != nil {
+		t.Fatalf("Failed to resolve context second time: %v", err)
+	}
+
+	value2 := resolvedCtx2.Value(TestKey)
+	if value2 != "test-value" {
+		t.Errorf("Expected context value 'test-value' on second resolve, got %v", value2)
+	}
+}
+
+type Config struct {
+	Host string
+	Port int
+}
+
+func TestAddValueWithPointer(t *testing.T) {
+	c := &Container{}
+
+	cfg := &Config{
+		Host: "localhost",
+		Port: 8080,
+	}
+
+	AddValue(c, cfg)
+	c.Build()
+
+	resolvedCfg, err := RequireService[*Config](c)
+	if err != nil {
+		t.Fatalf("Failed to resolve config: %v", err)
+	}
+
+	if resolvedCfg != cfg {
+		t.Errorf("Expected same pointer instance")
+	}
+
+	if resolvedCfg.Host != "localhost" || resolvedCfg.Port != 8080 {
+		t.Errorf("Config values don't match: got %+v", resolvedCfg)
+	}
+
+	resolvedCfg.Port = 9000
+
+	resolvedCfg2, err := RequireService[*Config](c)
+	if err != nil {
+		t.Fatalf("Failed to resolve config second time: %v", err)
+	}
+
+	if resolvedCfg2.Port != 9000 {
+		t.Errorf("Expected Port to be 9000 (modified), got %d", resolvedCfg2.Port)
+	}
+
+	resolvedCfg3, err := RequireServicePtr[Config](c)
+	if err != nil {
+		t.Fatalf("Failed to resolve config: %v", err)
+	}
+	if resolvedCfg3 != cfg {
+		t.Errorf("Expected same pointer instance")
+	}
+}
+
+func TestAddValueWithValueType(t *testing.T) {
+	c := &Container{}
+
+	cfg := Config{
+		Host: "localhost",
+		Port: 3000,
+	}
+
+	AddValue(c, cfg)
+	c.Build()
+
+	resolvedCfg, err := RequireService[Config](c)
+	if err != nil {
+		t.Fatalf("Failed to resolve config: %v", err)
+	}
+
+	if resolvedCfg.Host != "localhost" || resolvedCfg.Port != 3000 {
+		t.Errorf("Config values don't match: got %+v", resolvedCfg)
+	}
+
+	resolvedCfgPtr, err := RequireServicePtr[Config](c)
+	if err != nil {
+		t.Fatalf("Failed to resolve config ptr: %v", err)
+	}
+
+	if resolvedCfgPtr.Host != "localhost" || resolvedCfgPtr.Port != 3000 {
+		t.Errorf("Config ptr values don't match: got %+v", resolvedCfgPtr)
+	}
+}
