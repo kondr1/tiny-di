@@ -25,23 +25,24 @@ func unwrapPtr[T any](v any) (T, error) {
 	if v == nil {
 		return *new(T), fmt.Errorf("failed unwrap of type %T. Value is nil", *new(T))
 	}
-	castTPtr, ok := v.(T)
-	if ok {
-		return castTPtr, nil
-	}
 
-	val := reflect.ValueOf(v)
-	if val.Kind() == reflect.Ptr {
+	current := v
+	for {
+		if castT, ok := current.(T); ok {
+			return castT, nil
+		}
+
+		val := reflect.ValueOf(current)
+		if val.Kind() != reflect.Ptr {
+			break
+		}
+
 		elem := val.Elem()
-		if elem.IsValid() && elem.Kind() == reflect.Ptr {
-			return unwrapPtr[T](elem.Interface())
+		if !elem.IsValid() || (elem.Kind() == reflect.Ptr && elem.IsNil()) {
+			return *new(T), fmt.Errorf("failed unwrap of type %T. Value is nil", *new(T))
 		}
-		// Try to cast dereferenced value to T
-		if elem.IsValid() {
-			if result, ok := elem.Interface().(T); ok {
-				return result, nil
-			}
-		}
+
+		current = elem.Interface()
 	}
 
 	return *new(T), fmt.Errorf("failed to unwrap type %T to %T", v, *new(T))
@@ -51,20 +52,25 @@ func unwrapT[T any](v any) (*T, error) {
 	if v == nil {
 		return nil, fmt.Errorf("failed unwrap of type %T. Value is nil", *new(T))
 	}
-	castTPtr, ok := v.(*T)
-	if ok {
-		return castTPtr, nil
-	}
 
-	// If v is a pointer to pointer, try to dereference once
-	val := reflect.ValueOf(v)
-	if val.Kind() == reflect.Ptr {
-		elem := val.Elem()
-		if elem.IsValid() {
-			if result, ok := elem.Interface().(*T); ok {
-				return result, nil
-			}
+	current := v
+	for {
+		if castTPtr, ok := current.(*T); ok {
+			return castTPtr, nil
 		}
+
+		val := reflect.ValueOf(current)
+		if val.Kind() != reflect.Ptr {
+			break
+		}
+
+		elem := val.Elem()
+		// If we hit a nil pointer in the chain, mimic the original error behavior
+		if !elem.IsValid() || (elem.Kind() == reflect.Ptr && elem.IsNil()) {
+			return nil, fmt.Errorf("failed unwrap of type %T. Value is nil", *new(T))
+		}
+
+		current = elem.Interface()
 	}
 
 	return nil, fmt.Errorf("failed unwrap of type %T to *%T", v, *new(T))
