@@ -11,7 +11,8 @@ import (
 type lifetime int
 
 const (
-	Singleton lifetime = iota
+	Value lifetime = iota
+	Singleton
 	Transient
 	Scoped
 	HostedService
@@ -30,15 +31,22 @@ type Container struct {
 	hostedServices     []IHostedService
 }
 
-func nameFor[T any]() string  { return fmt.Sprintf("%T", *new(T)) }
-func nameForI[T any]() string { return fmt.Sprintf("%T", new(T)) }
+func nameForT[T any]() string {
+	t := reflect.TypeFor[T]()
+	if t.Kind() == reflect.Interface {
+		name := nameForPtr[T]()
+		return strings.TrimPrefix(name, "*")
+	}
+	return fmt.Sprintf("%T", *new(T))
+}
+func nameForPtr[T any]() string { return fmt.Sprintf("%T", new(T)) }
 
 func addI[I any, T any](c *Container, lifetime lifetime) {
 	if c.built {
 		panic(fmt.Errorf("%w: Cannot add dependencies after Build()", ErrContainerAlreadyBuilt))
 	}
-	nameT := nameFor[T]()
-	nameI := nameForI[I]()
+	nameT := nameForT[T]()
+	nameI := nameForPtr[I]()
 
 	interfaceType := reflect.TypeFor[I]()
 	if interfaceType.Kind() != reflect.Interface {
@@ -74,8 +82,8 @@ func add[T any](c *Container, lifetime lifetime) *callSite[T] {
 	if c.built {
 		panic(fmt.Errorf("%w: Cannot add dependencies after Build()", ErrContainerAlreadyBuilt))
 	}
-	depNameType := nameFor[T]()
-	depPtrNameType := nameForI[T]()
+	depNameType := nameForT[T]()
+	depPtrNameType := nameForPtr[T]()
 	depType := reflect.TypeFor[T]()
 	if c.callSitesRegistry == nil {
 		c.callSitesRegistry = make(map[string]callSiteInterface)
@@ -164,11 +172,12 @@ func (c *Container) checkCircle(typeName string, visited []string) error {
 	}
 	visited = append(visited, typeName)
 	for _, dep := range source.Deps() {
-		if slices.Contains(visited, dep[1:]) {
+		dep = strings.TrimPrefix(dep, "*")
+		if slices.Contains(visited, dep) {
 			circle := strings.Join(visited, " -> ")
 			return fmt.Errorf("%w: %s", ErrCircleDependency, circle)
 		}
-		err := c.checkCircle(dep[1:], visited)
+		err := c.checkCircle(dep, visited)
 		if err != nil {
 			return err
 		}
@@ -282,8 +291,8 @@ func AddValue[T any](c *Container, value T) {
 		panic(fmt.Errorf("%w: Cannot add dependencies after Build()", ErrContainerAlreadyBuilt))
 	}
 
-	depNameType := nameFor[T]()
-	depPtrNameType := nameForI[T]()
+	depNameType := nameForT[T]()
+	depPtrNameType := nameForPtr[T]()
 
 	if c.callSitesRegistry == nil {
 		c.callSitesRegistry = make(map[string]callSiteInterface)
@@ -306,7 +315,7 @@ func AddValue[T any](c *Container, value T) {
 
 	callSite := &callSite[T]{
 		name:            depNameType,
-		lifetime:        Singleton,
+		lifetime:        Value,
 		dependencyNames: []string{},
 		dependencies:    nil,
 		initMethod:      reflect.Method{},

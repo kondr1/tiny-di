@@ -30,10 +30,24 @@ func (c *callSite[T]) Name() string       { return c.name }
 func (c *callSite[T]) Lifetime() lifetime { return c.lifetime }
 func (c *callSite[T]) Deps() []string     { return c.dependencyNames }
 
-func (c *callSite[T]) Build(s *Scope) (any, error) { return c.build(s) }
+func (c *callSite[T]) Build(s *Scope) (any, error) {
+	var err error
+	var instance any
+	if c.Lifetime() == Value {
+		instance = c.getValue()
+	} else {
+		instance, err = c.build(s)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return instance, nil
+}
 func (c *callSite[T]) build(s *Scope) (*T, error) {
 	switch c.lifetime {
 	case HostedService:
+		fallthrough
+	case Value:
 		fallthrough
 	case Singleton:
 		return c.buildSingleton()
@@ -93,6 +107,10 @@ func (c *callSite[T]) buildSingleton() (*T, error) {
 		c.instance, c.constructorError = c.constructor(nil)
 	})
 	return c.instance, c.constructorError
+}
+
+func (c *callSite[T]) getValue() T {
+	return *c.instance
 }
 
 func (c *callSite[T]) buildTransient() (*T, error) {

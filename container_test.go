@@ -159,11 +159,12 @@ func TestNameFor(t *testing.T) {
 	counterType := reflect.TypeFor[*Counter]()
 	counter := &Counter{I: 0}
 	var defaultCounter *Counter
-	name1 := nameFor[*Counter]()
+	name1 := nameForT[*Counter]()
 	name2 := fmt.Sprintf("%T", counter)
 	name3 := fmt.Sprintf("%T", defaultCounter)
-
-	nameI := nameForI[CounterInterface]()
+	name4 := nameForT[context.Context]()
+	nameI5 := nameForPtr[context.Context]()
+	nameI := nameForPtr[CounterInterface]()
 
 	if name1 != name2 || name1 != name3 || name1 != counterType.String() {
 		t.Errorf("%s and %s is not equal to %s", name3, name2, name1)
@@ -208,7 +209,7 @@ func TestRequireInterfaceService(t *testing.T) {
 		t.Errorf("Error not same: %s", r.(error))
 	}()
 	c := BuildContainer()
-	_, err := RequireServicePtr[CInterface](c)
+	_, err := RequireServicePtr[AInterface](c)
 	if err == nil || !errors.Is(err, ErrDependencyNotFound) {
 		t.Errorf("Expected ErrDependencyNotFound, got %v", err)
 	}
@@ -777,5 +778,37 @@ func TestAddValueWithValueType(t *testing.T) {
 
 	if resolvedCfgPtr.Host != "localhost" || resolvedCfgPtr.Port != 3000 {
 		t.Errorf("Config ptr values don't match: got %+v", resolvedCfgPtr)
+	}
+}
+
+type WithContextDependency struct {
+	Ctx context.Context
+}
+
+func (w *WithContextDependency) Init(ctx context.Context) error {
+	w.Ctx = ctx
+	return nil
+}
+func TestWithContextDependency(t *testing.T) {
+	c := &Container{}
+
+	AddTransientWithoutInterface[WithContextDependency](c)
+
+	ctx := context.WithValue(context.Background(), TestKey, "context-in-dependency")
+
+	AddValue(c, ctx)
+
+	c.Build()
+
+	dep, err := RequireServicePtr[WithContextDependency](c)
+
+	if err != nil {
+		t.Fatalf("Failed to resolve WithContextDependency: %v", err)
+	}
+
+	value := dep.Ctx.Value(TestKey)
+
+	if value != "context-in-dependency" {
+		t.Errorf("Expected context value 'context-in-dependency', got %v", value)
 	}
 }

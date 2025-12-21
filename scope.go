@@ -21,7 +21,7 @@ type Scope struct {
 	instances map[string]any
 }
 
-func unwrapPtr[T any](v any) (T, error) {
+func unwrapT[T any](v any) (T, error) {
 	if v == nil {
 		return *new(T), fmt.Errorf("failed unwrap of type %T. Value is nil", *new(T))
 	}
@@ -33,6 +33,11 @@ func unwrapPtr[T any](v any) (T, error) {
 		}
 
 		val := reflect.ValueOf(current)
+		rp := reflect.New(val.Type())
+		rp.Elem().Set(val)
+		if castTPtrr, ok := rp.Interface().(T); ok {
+			return castTPtrr, nil
+		}
 		if val.Kind() != reflect.Ptr {
 			break
 		}
@@ -48,7 +53,7 @@ func unwrapPtr[T any](v any) (T, error) {
 	return *new(T), fmt.Errorf("failed to unwrap type %T to %T", v, *new(T))
 }
 
-func unwrapT[T any](v any) (*T, error) {
+func unwrapPtrT[T any](v any) (*T, error) {
 	if v == nil {
 		return nil, fmt.Errorf("failed unwrap of type %T. Value is nil", *new(T))
 	}
@@ -60,6 +65,11 @@ func unwrapT[T any](v any) (*T, error) {
 		}
 
 		val := reflect.ValueOf(current)
+		rp := reflect.New(val.Type())
+		rp.Elem().Set(val)
+		if castTPtrr, ok := rp.Interface().(*T); ok {
+			return castTPtrr, nil
+		}
 		if val.Kind() != reflect.Ptr {
 			break
 		}
@@ -104,12 +114,18 @@ func unwrapT[T any](v any) (*T, error) {
 //	}
 func RequireServicePtrForScope[T any](s *Scope) (*T, error) {
 	if !s.built {
-		panic(fmt.Errorf("%w: You should call Build() before RequireServiceFor", ErrContainerNotBuilt))
+		panic(fmt.Errorf("%w: You should call Build() before RequireService", ErrContainerNotBuilt))
 	}
-	nameDep := nameFor[T]()
-	if nameDep == "" || nameDep == "<nil>" {
-		panic(fmt.Errorf("%w Maybe you should use RequireServiceForI for interfaces?", ErrExtractDependencyName))
+	// var nameDep string
+	nameDep := nameForT[T]()
+	if reflect.TypeFor[T]().Kind() == reflect.Interface {
+		panic(fmt.Errorf("%w Maybe you should use RequireService[T] for interfaces?", ErrExtractDependencyName))
 	}
+	// } else {
+	// 	if nameDep == "" || nameDep == "<nil>" {
+	// 		panic(fmt.Errorf("%w Maybe you should use RequireService[T] for interfaces?", ErrExtractDependencyName))
+	// 	}
+	// }
 	item, ok := s.callSitesRegistry[nameDep]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrDependencyNotFound, nameDep)
@@ -118,16 +134,22 @@ func RequireServicePtrForScope[T any](s *Scope) (*T, error) {
 	if err != nil {
 		return nil, err
 	}
-	return unwrapT[T](dep)
+	return unwrapPtrT[T](dep)
 }
 
 func RequireServiceForScope[T any](s *Scope) (T, error) {
 	if !s.built {
 		panic(fmt.Errorf("%w: You should call Build() before RequireServiceFor", ErrContainerNotBuilt))
 	}
-	nameDep := nameFor[T]()
-	if nameDep == "" || nameDep == "<nil>" {
-		nameDep = nameForI[T]()
+
+	var nameDep string
+	if reflect.TypeFor[T]().Kind() == reflect.Interface {
+		nameDep = nameForPtr[T]()
+		if nameDep == "" || nameDep == "<nil>" {
+			panic(fmt.Errorf("%w", ErrExtractDependencyName))
+		}
+	} else {
+		nameDep = nameForT[T]()
 		if nameDep == "" || nameDep == "<nil>" {
 			panic(fmt.Errorf("%w", ErrExtractDependencyName))
 		}
@@ -140,5 +162,5 @@ func RequireServiceForScope[T any](s *Scope) (T, error) {
 	if err != nil {
 		return *new(T), err
 	}
-	return unwrapPtr[T](dep)
+	return unwrapT[T](dep)
 }
